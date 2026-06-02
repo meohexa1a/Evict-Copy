@@ -6,6 +6,7 @@ import arc.util.Log;
 import mindustry.Vars;
 import mindustry.content.Blocks;
 import mindustry.game.EventType.WorldLoadEvent;
+import mindustry.game.Team;
 import mindustry.gen.Groups;
 import mindustry.mod.Plugin;
 import mindustry.world.Tile;
@@ -30,7 +31,7 @@ import java.util.Set;
  * Current scope:
  * - Dark Sand floor
  * - Dirt Wall terrain
- * - 6x6 staggered hex grid
+ * - 9 staggered rows: 7 / 8 / 7 / 8 / 7 / 8 / 7 / 8 / 7 hexes
  * - rare completely filled hexes, biased toward map edges
  * - no separated playable sectors
  * - equal 25% initial chance for each connection template
@@ -38,7 +39,7 @@ import java.util.Set;
  * - four wall / connection templates
  *
  * Deliberately not included yet:
- * - cores
+ * - separate teams for each core
  * - team assignment
  * - ores
  * - water
@@ -50,8 +51,9 @@ public class EvictMapPlugin extends Plugin {
     // Geometry measured from the editor reference map
     // ---------------------------------------------------------------------
 
-    private static final int COLS = 6;
-    private static final int ROWS = 6;
+    private static final int SHORT_ROW_COLS = 7;
+    private static final int LONG_ROW_COLS = 8;
+    private static final int ROWS = 9;
 
     private static final int OUTER_RADIUS = 38;
 
@@ -136,7 +138,7 @@ public class EvictMapPlugin extends Plugin {
             }
         });
 
-        Log.info("[EvictMapGenerator] Loaded. Code revision 0.1.4. Use 'evictstatus' for commands and current settings.");
+        Log.info("[EvictMapGenerator] Loaded. Code revision 0.2.0. Use 'evictstatus' for commands and current settings.");
     }
 
     @Override
@@ -216,7 +218,12 @@ public class EvictMapPlugin extends Plugin {
                 Log.info("[EvictMapGenerator] autoGenerate: @", autoGenerate);
                 Log.info("[EvictMapGenerator] nextSeed: @", nextSeed == null ? "random" : nextSeed);
                 Log.info("[EvictMapGenerator] lastSeed: @", lastSeed == null ? "none" : lastSeed);
-                Log.info("[EvictMapGenerator] grid: @x@", COLS, ROWS);
+                Log.info(
+                    "[EvictMapGenerator] grid: @ staggered rows, alternating @ / @ hexes",
+                    ROWS,
+                    SHORT_ROW_COLS,
+                    LONG_ROW_COLS
+                );
                 Log.info("[EvictMapGenerator] required map size: at least @x@ tiles", minimumWorldWidth(), minimumWorldHeight());
                 Log.info("[EvictMapGenerator] edge weights: full=@%, thin=@%, open=@%, passage=@%",
                     percent(FULL_WEIGHT),
@@ -270,14 +277,16 @@ public class EvictMapPlugin extends Plugin {
 
         applyConnectionTemplates(walls, zones, centers, edgeTypes);
         applyTerrainToWorld(walls);
+        placeNucleusCores(centers, normalCells);
 
         lastSeed = seed;
 
         Log.info(
-            "[EvictMapGenerator] Done. seed=@ normalHexes=@ filledHexes=@ repairedConnectivityEdges=@",
+            "[EvictMapGenerator] Done. seed=@ normalHexes=@ filledHexes=@ nucleusCores=@ repairedConnectivityEdges=@",
             seed,
             normalCells.size(),
             filledCells.size(),
+            normalCells.size(),
             repairedConnectivityEdges.size()
         );
     }
@@ -837,12 +846,36 @@ public class EvictMapPlugin extends Plugin {
                 // Clear ores / overlays and make all floors Dark Sand.
                 Tile.setFloor(tile, Blocks.darksand, Blocks.air);
 
-                // Preserve temporary cores and other synthetic editor blocks.
-                // Terrain walls and air are replaced.
-                if (!tile.block().synthetic()) {
-                    tile.setBlock(walls[y][x] ? Blocks.dirtWall : Blocks.air);
-                }
+                // Replace every previous editor block too, including the one
+                // temporary shard core used only to make the base map hostable.
+                tile.setBlock(walls[y][x] ? Blocks.dirtWall : Blocks.air);
             }
+        }
+    }
+
+    private void placeNucleusCores(
+        Map<Cell, Point> centers,
+        List<Cell> normalCells
+    ) {
+        /**
+         * First core prototype:
+         * place one large Nucleus exactly in the middle of every normal hex.
+         *
+         * All of them temporarily use Team.sharded. Separate PvP teams and
+         * player assignment will be implemented later.
+         */
+        for (Cell cell : normalCells) {
+            Point center = centers.get(cell);
+            Tile tile = Vars.world.tile(center.x, center.y);
+
+            if (tile == null) {
+                throw new IllegalStateException(
+                    "Core center is outside the loaded world at "
+                        + center.x + "," + center.y + "."
+                );
+            }
+
+            tile.setBlock(Blocks.coreNucleus, Team.sharded);
         }
     }
 
@@ -1169,11 +1202,15 @@ public class EvictMapPlugin extends Plugin {
         return max - min + OUTER_RADIUS * 2 + OUTER_BUFFER * 2 + 1;
     }
 
+    private int colsForRow(int row) {
+        return row % 2 == 0 ? SHORT_ROW_COLS : LONG_ROW_COLS;
+    }
+
     private List<Cell> allCells() {
         List<Cell> cells = new ArrayList<>();
 
         for (int row = 0; row < ROWS; row++) {
-            for (int col = 0; col < COLS; col++) {
+            for (int col = 0; col < colsForRow(row); col++) {
                 cells.add(new Cell(col, row));
             }
         }
@@ -1187,16 +1224,28 @@ public class EvictMapPlugin extends Plugin {
         slots.add(new Cell(cell.col - 1, cell.row));
         slots.add(new Cell(cell.col + 1, cell.row));
 
+        /**
+         * Short rows contain 7 cores and are shifted 37 tiles to the right.
+         * Long rows contain 8 cores and start 37 tiles further left.
+         *
+         * This centers the pattern:
+         *   7
+         *  8
+         *   7
+         *  8
+         */
         if (cell.row % 2 == 0) {
-            slots.add(new Cell(cell.col - 1, cell.row - 1));
-            slots.add(new Cell(cell.col,     cell.row - 1));
-            slots.add(new Cell(cell.col - 1, cell.row + 1));
-            slots.add(new Cell(cell.col,     cell.row + 1));
-        } else {
+            // Short shifted row -> adjacent long rows.
             slots.add(new Cell(cell.col,     cell.row - 1));
             slots.add(new Cell(cell.col + 1, cell.row - 1));
             slots.add(new Cell(cell.col,     cell.row + 1));
             slots.add(new Cell(cell.col + 1, cell.row + 1));
+        } else {
+            // Long unshifted row -> adjacent short rows.
+            slots.add(new Cell(cell.col - 1, cell.row - 1));
+            slots.add(new Cell(cell.col,     cell.row - 1));
+            slots.add(new Cell(cell.col - 1, cell.row + 1));
+            slots.add(new Cell(cell.col,     cell.row + 1));
         }
 
         return slots;
@@ -1215,19 +1264,22 @@ public class EvictMapPlugin extends Plugin {
     }
 
     private boolean validCell(Cell cell) {
-        return cell.col >= 0 && cell.col < COLS && cell.row >= 0 && cell.row < ROWS;
+        return cell.row >= 0
+            && cell.row < ROWS
+            && cell.col >= 0
+            && cell.col < colsForRow(cell.row);
     }
 
     private int borderDistance(Cell cell) {
         return Math.min(
-            Math.min(cell.col, COLS - 1 - cell.col),
+            Math.min(cell.col, colsForRow(cell.row) - 1 - cell.col),
             Math.min(cell.row, ROWS - 1 - cell.row)
         );
     }
 
     private Point rawCenter(Cell cell) {
         return new Point(
-            cell.col * HORIZONTAL_DX + (cell.row % 2 == 1 ? DIAGONAL_DX : 0),
+            cell.col * HORIZONTAL_DX + (cell.row % 2 == 0 ? DIAGONAL_DX : 0),
             cell.row * DIAGONAL_DY
         );
     }
