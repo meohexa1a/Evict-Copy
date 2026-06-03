@@ -2,7 +2,7 @@
   "name": "EvictMapGenerator",
   "author": "Vini2309",
   "main": "vini.evictmap.EvictMapPlugin",
-  "description": "Server-side Evict-style hex generator with walls, resources, Fallen-team neutral cores and safe personal team assignment on first join.",
-  "version": "0.5.0",
+  "description": "Server-side Evict-style PvP generator with always-running custom rules, Fallen-team neutral cores and safe personal team assignment.",
+  "version": "0.5.1",
   "minGameVersion": "157.4"
 }
