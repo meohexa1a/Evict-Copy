@@ -164,7 +164,7 @@ public class EvictMapPlugin extends Plugin {
 
         Events.on(PlayerJoin.class, event -> teamManager.handlePlayerJoin(event.player));
 
-        Log.info("[EvictMapGenerator] Loaded. Code revision 0.5.0. Use 'evictstatus' for commands and current settings.");
+        Log.info("[EvictMapGenerator] Loaded. Code revision 0.5.1. Use 'evictstatus' for commands and current settings.");
     }
 
     @Override
@@ -302,6 +302,8 @@ public class EvictMapPlugin extends Plugin {
             );
         }
 
+        applyEvictRules();
+
         Random random = new Random(seed);
 
         List<Cell> cells = allCells();
@@ -351,6 +353,37 @@ public class EvictMapPlugin extends Plugin {
             repairedConnectivityEdges.size(),
             resourceSummary.compact(),
             teamManager.compactStatus()
+        );
+    }
+
+    private void applyEvictRules() {
+        /**
+         * The generated map is a custom always-running PvP mode.
+         *
+         * Vanilla game-over must stay disabled because all cores initially
+         * belong to Fallen team #18 and the plugin will later implement its
+         * own capture, victory and reset logic.
+         */
+        Vars.state.rules.pvp = true;
+        Vars.state.rules.pvpAutoPause = false;
+
+        Vars.state.rules.waves = false;
+        Vars.state.rules.waveTimer = false;
+        Vars.state.rules.waveSending = false;
+        Vars.state.rules.winWave = 0;
+
+        Vars.state.rules.infiniteResources = false;
+        Vars.state.rules.attackMode = false;
+
+        Vars.state.rules.canGameOver = false;
+        Vars.state.rules.cleanupDeadTeams = false;
+        Vars.state.rules.coreCapture = false;
+
+        Vars.state.rules.defaultTeam = TeamManager.FALLEN_TEAM;
+
+        Log.info(
+            "[EvictMapGenerator] Applied Evict rules: pvp=ON, pvpAutoPause=OFF, waves=OFF, vanillaGameOver=OFF, defaultTeam=Fallen #@.",
+            TeamManager.FALLEN_TEAM_ID
         );
     }
 
