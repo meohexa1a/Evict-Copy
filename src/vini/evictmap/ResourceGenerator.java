@@ -75,22 +75,25 @@ final class ResourceGenerator {
      * ores may overwrite a few common tiles where fields overlap.
      */
     private static final NoisePreset[] ORE_PRESETS = new NoisePreset[]{
-        new NoisePreset(Blocks.oreCopper,   101, 22.5f, 0.785f, 2f, 0.30f,  0.00f),
-        new NoisePreset(Blocks.oreLead,     211, 22.0f, 0.795f, 2f, 0.30f,  0.00f),
-        new NoisePreset(Blocks.oreCoal,     307, 20.0f, 0.810f, 2f, 0.32f,  0.00f),
-        new NoisePreset(Blocks.oreTitanium, 401, 18.0f, 0.835f, 2f, 0.30f,  0.00f),
-        new NoisePreset(Blocks.oreThorium,  503, 18.5f, 0.842f, 2f, 0.30f,  0.00f)
+        // Larger scale -> wider patches. Higher threshold -> fewer patches.
+        new NoisePreset(Blocks.oreCopper,   101, 34.0f, 0.815f, 2f, 0.30f,  0.00f),
+        new NoisePreset(Blocks.oreLead,     211, 33.0f, 0.823f, 2f, 0.30f,  0.00f),
+        new NoisePreset(Blocks.oreCoal,     307, 30.0f, 0.838f, 2f, 0.32f,  0.00f),
+        new NoisePreset(Blocks.oreTitanium, 401, 27.0f, 0.858f, 2f, 0.30f,  0.00f),
+        new NoisePreset(Blocks.oreThorium,  503, 27.5f, 0.866f, 2f, 0.30f,  0.00f)
     };
 
     /**
-     * Water should appear in most rooms, usually in several small patches.
-     * Tar/oil is intentionally rarer.
+     * Water should appear less often but form wider patches.
+     * Tar/oil is intentionally much rarer than water.
      */
     private static final NoisePreset WATER_PRESET =
-        new NoisePreset(Blocks.darksandWater, 701, 12.0f, 0.815f, 2f, 0.38f, 0.00f);
+        // Water was far too common in 0.4.1: make it much rarer but wider.
+        new NoisePreset(Blocks.darksandWater, 701, 24.0f, 0.900f, 2f, 0.38f, 0.00f);
 
     private static final NoisePreset TAR_PRESET =
-        new NoisePreset(Blocks.tar, 809, 10.0f, 0.875f, 2f, 0.35f, 0.00f);
+        // Tar/oil should be rarer than water and appear in occasional larger patches.
+        new NoisePreset(Blocks.tar, 809, 21.0f, 0.945f, 2f, 0.35f, 0.00f);
 
     private ResourceGenerator() {
     }
