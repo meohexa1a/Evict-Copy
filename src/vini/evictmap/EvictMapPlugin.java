@@ -183,6 +183,8 @@ public class EvictMapPlugin extends Plugin {
         new InviteManager(teamManager);
     private final RoundEndCommands roundEndCommands =
         new RoundEndCommands(teamManager);
+    private final EvictHelpCommands helpCommands =
+        new EvictHelpCommands();
 
     @Override
     public void init() {
@@ -240,7 +242,7 @@ public class EvictMapPlugin extends Plugin {
             evictCommands.update();
         });
 
-        Log.info("[EvictMapGenerator] Loaded. Code revision 0.10.3. Use 'evictstatus' for commands and current settings.");
+        Log.info("[EvictMapGenerator] Loaded. Code revision 0.10.4. Use 'evictstatus' for commands and current settings.");
     }
 
     @Override
@@ -248,6 +250,12 @@ public class EvictMapPlugin extends Plugin {
         evictCommands.registerClientCommands(handler);
         inviteManager.registerClientCommands(handler);
         roundEndCommands.registerClientCommands(handler);
+
+        /**
+         * Register last so it replaces vanilla /help after every normal and
+         * development chat command is present in the handler.
+         */
+        helpCommands.registerClientCommands(handler);
     }
 
     @Override
