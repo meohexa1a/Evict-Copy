@@ -1,113 +1,52 @@
-# EvictMapGenerator
+# Evict Map Generator
 
-Server-side Mindustry plugin prototype for generating the Evict-style wall and connection layout directly on a loaded map.
+A server-side Mindustry plugin for Evict-style persistent PvP on a procedurally generated hex map.
 
-## Current scope
+## Features
 
-Implemented:
+- Procedural hex-map generation with walls, passages, ores, water and oil
+- Fallen team `#18` as the neutral owner of unclaimed cores
+- Personal player teams with protected starting hexes, a start schematic and starting resources
+- Core captures with a 5-second replacement delay, hex cleanup and captured Core Shards
+- Elimination messages, claims and leader-managed `/invite` requests
+- Capture and long-range unit attrition
+- Team-scoped `/fullassault` mode for unattended combat units
+- `/die` surrender and `/over` early round ending
+- Automatic random-seed round resets
+- Persistent tuning for attrition, walls and ore generation
 
-- 6×6 staggered hex grid
-- horizontal center offset: `75`
-- diagonal center offset: `37 / 64`
-- outer room-circle radius: `38`
-- mirrored inner guaranteed-floor polygon
-- floor: `Dark Sand`
-- wall: `Dirt Wall`
-- rounded outer edges toward completely filled hexes and toward the outside
-- four connection variants:
-  - full wall
-  - one-tile thin wall
-  - open
-  - wall with centered 7-tile passage
-- rare completely filled hexes, biased toward the map edge
-- connected playable network: filled hexes may not split the map, and a random spanning tree forces a traversable route between all normal hexes
-
-Not implemented yet:
-
-- nucleus cores
-- teams
-- ores
-- water
-- PvP round logic
-
-## Base map
-
-Create a blank test map in the Mindustry editor. It needs to be at least:
+## Player Commands
 
 ```text
-509 × 417 tiles
+/help
+/help dev
+/fullassault
+/invite [number]
+/die
+/over
 ```
 
-Using something slightly larger such as `520 × 430` is easier.
-
-The generator overwrites terrain floors, terrain walls and overlays. Synthetic blocks such as a temporary editor core are preserved for now, so the map can still be hosted before core generation is added.
-
-Do not test this on an important map without a backup.
-
-## Install on a dedicated server
-
-Build the JAR and copy it into:
+## Development Commands
 
 ```text
-<server folder>/config/mods/
+/forceend
+/attrition [t1-3] [t4] [t5]
+/wall [full-wall] [small-wall] [open] [passage]
+/corecap [additional-per-core]
+/spawnunit [unit] [amount] [team]
 ```
 
-Restart the server, then run:
+Ore presets can be adjusted from the server console:
 
 ```text
-mods
-evictstatus
+evictcopper [scale] [threshold] [octaves] [falloff]
+evictlead [scale] [threshold] [octaves] [falloff]
+evictcoal [scale] [threshold] [octaves] [falloff]
+evicttitanium [scale] [threshold] [octaves] [falloff]
+evictthorium [scale] [threshold] [octaves] [falloff]
+evictscrap [scale] [threshold] [octaves] [falloff]
 ```
 
-## Recommended test flow
+## Installation
 
-Enable generation for the next hosted map:
-
-```text
-evictauto on
-evictseed 12345
-host <blank-map-name> sandbox
-```
-
-`evictauto on` is preferred because generation runs during map loading, before clients connect.
-
-For quick testing on an already hosted map:
-
-```text
-evictgen 12345
-```
-
-If players are already connected during `evictgen`, reconnect afterwards if the terrain is not refreshed correctly.
-
-## Commands
-
-```text
-evictstatus
-evictauto <on/off>
-evictseed [seed/random]
-evictgen [seed/random]
-```
-
-## Build with GitHub Actions
-
-Upload this folder to a GitHub repository. The included workflow builds the JAR automatically:
-
-```text
-Actions → Build plugin → latest run → Artifacts → EvictMapGenerator
-```
-
-Unzip the downloaded artifact and place the contained JAR into the server's `config/mods/` folder.
-
-## Build locally
-
-Install JDK 17 and Gradle, then run:
-
-```text
-gradle jar
-```
-
-The JAR appears in:
-
-```text
-build/libs/EvictMapGenerator.jar
-```
+Build the plugin JAR and place it in the Mindustry server `config/mods` folder. Clients do not need to install the plugin.

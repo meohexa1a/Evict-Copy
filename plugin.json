@@ -2,7 +2,7 @@
   "name": "EvictMapGenerator",
   "author": "Vini2309",
   "main": "vini.evictmap.EvictMapPlugin",
-  "description": "Server-side Evict-style PvP generator with procedural terrain, captures, claims, invites, surrender, early round endings, persistent tuning, attrition, full assault and a filtered paginated /help menu separating normal commands from discoverable development commands.",
-  "version": "0.10.4",
+  "description": "Server-side Evict-style Mindustry PvP plugin with procedural hex maps, personal teams, Fallen neutral cores, delayed captures, attrition, invites and claims, surrender, early round ending, persistent tuning commands and automatic round resets.",
+  "version": "1.0.0",
   "minGameVersion": "157.4"
 }
