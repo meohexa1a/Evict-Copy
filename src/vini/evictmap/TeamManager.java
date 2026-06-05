@@ -94,10 +94,16 @@ final class TeamManager {
     private final List<HexSlot> slots = new ArrayList<>();
     private final Map<String, Integer> teamIdByPlayerUuid = new HashMap<>();
     private final Map<Integer, String> playerNameByTeamId = new HashMap<>();
+    private final Map<Integer, String> leaderUuidByTeamId = new HashMap<>();
+    private final List<Integer> personalTeamCreationOrder = new ArrayList<>();
+    private final Map<String, Integer> claimTeamIdByPlayerUuid = new HashMap<>();
+    private final Map<Integer, Map<Integer, Integer>>
+        capturesByDefenderTeamId = new HashMap<>();
     private final Set<Integer> usedPersonalTeamIds = new HashSet<>();
     private final Set<Integer> eliminatedTeamIds = new HashSet<>();
 
     private final Cons<Team> victoryHandler;
+    private InviteManager inviteManager;
 
     private Random random = new Random();
     private boolean roundActive = false;
@@ -109,12 +115,20 @@ final class TeamManager {
         this.victoryHandler = victoryHandler;
     }
 
+    void setInviteManager(InviteManager inviteManager) {
+        this.inviteManager = inviteManager;
+    }
+
     void beginRound(List<HexSlot> newSlots, long seed) {
         slots.clear();
         slots.addAll(newSlots);
 
         teamIdByPlayerUuid.clear();
         playerNameByTeamId.clear();
+        leaderUuidByTeamId.clear();
+        personalTeamCreationOrder.clear();
+        claimTeamIdByPlayerUuid.clear();
+        capturesByDefenderTeamId.clear();
         usedPersonalTeamIds.clear();
         eliminatedTeamIds.clear();
 
@@ -169,17 +183,29 @@ final class TeamManager {
         Integer existingTeamId = teamIdByPlayerUuid.get(uuid);
 
         if (existingTeamId != null) {
-            if (existingTeamId != FALLEN_TEAM_ID) {
+            if (
+                existingTeamId != FALLEN_TEAM_ID
+                    && uuid.equals(leaderUuidByTeamId.get(existingTeamId))
+            ) {
                 playerNameByTeamId.put(existingTeamId, player.plainName());
             }
 
             assignPlayerToTeam(player, Team.get(existingTeamId));
 
             if (existingTeamId == FALLEN_TEAM_ID) {
-                player.sendMessage(
-                    "[scarlet]No safe starting hex is available. "
-                        + "You remain in the Fallen team without a starting bonus."
-                );
+                Integer claimantTeamId = claimTeamIdByPlayerUuid.get(uuid);
+
+                if (claimantTeamId == null) {
+                    player.sendMessage(
+                        "[accent]Reconnected as Fallen. Use /invite to view available teams.[]"
+                    );
+                } else {
+                    player.sendMessage(
+                        "[accent]Reconnected as Fallen. You were claimed by "
+                            + displayTeam(Team.get(claimantTeamId))
+                            + "'s team.[]"
+                    );
+                }
             } else {
                 player.sendMessage(
                     "[accent]Reconnected to your previous team: #"
@@ -218,6 +244,8 @@ final class TeamManager {
         usedPersonalTeamIds.add(teamId);
         teamIdByPlayerUuid.put(uuid, teamId);
         playerNameByTeamId.put(teamId, player.plainName());
+        leaderUuidByTeamId.put(teamId, uuid);
+        personalTeamCreationOrder.add(teamId);
         roundActivated = true;
 
         assignPlayerToTeam(player, personalTeam);
@@ -444,6 +472,10 @@ final class TeamManager {
             return;
         }
 
+        if (attackerTeam != defenderTeam) {
+            recordCoreDestruction(defenderTeam, attackerTeam);
+        }
+
         int removedBuildings = clearSyntheticBuildingsInsideHex(slot);
         int attritionDeaths =
             attritionManager.applyCaptureAttrition(slot.x, slot.y);
@@ -570,6 +602,20 @@ final class TeamManager {
 
         eliminatedTeamIds.add(defenderTeam.id);
 
+        Team claimantTeam = determineClaimantTeam(defenderTeam, attackerTeam);
+        List<String> newlyEliminatedPlayerUuids =
+            moveEliminatedTeamPlayersToFallen(defenderTeam, claimantTeam);
+
+        transferExistingClaims(defenderTeam, claimantTeam);
+
+        if (inviteManager != null) {
+            inviteManager.handleTeamEliminated(
+                defenderTeam,
+                claimantTeam,
+                newlyEliminatedPlayerUuids
+            );
+        }
+
         String message =
             "[accent]"
                 + displayTeam(defenderTeam)
@@ -580,10 +626,150 @@ final class TeamManager {
         Call.sendMessage(message);
 
         Log.info(
-            "[EvictMapGenerator] Elimination: @ was eliminated by @.",
+            "[EvictMapGenerator] Elimination: @ was eliminated by @. claimant=@.",
             displayTeam(defenderTeam),
-            displayTeam(attackerTeam)
+            displayTeam(attackerTeam),
+            claimantTeam == null ? "none" : displayTeam(claimantTeam)
         );
+    }
+
+    private void recordCoreDestruction(
+        Team defenderTeam,
+        Team attackerTeam
+    ) {
+        if (
+            defenderTeam == null
+                || attackerTeam == null
+                || defenderTeam == FALLEN_TEAM
+                || attackerTeam == FALLEN_TEAM
+                || defenderTeam == attackerTeam
+                || attackerTeam == Team.derelict
+        ) {
+            return;
+        }
+
+        Map<Integer, Integer> counts =
+            capturesByDefenderTeamId.computeIfAbsent(
+                defenderTeam.id,
+                ignored -> new HashMap<>()
+            );
+
+        counts.put(
+            attackerTeam.id,
+            counts.getOrDefault(attackerTeam.id, 0) + 1
+        );
+    }
+
+    private Team determineClaimantTeam(
+        Team defenderTeam,
+        Team lastCoreAttacker
+    ) {
+        Map<Integer, Integer> counts =
+            capturesByDefenderTeamId.get(defenderTeam.id);
+
+        if (counts == null || counts.isEmpty()) {
+            return validClaimant(lastCoreAttacker) ? lastCoreAttacker : null;
+        }
+
+        int bestCount = Integer.MIN_VALUE;
+        List<Integer> tiedTeamIds = new ArrayList<>();
+
+        for (Map.Entry<Integer, Integer> entry : counts.entrySet()) {
+            Team candidate = Team.get(entry.getKey());
+
+            if (!validClaimant(candidate)) {
+                continue;
+            }
+
+            if (entry.getValue() > bestCount) {
+                bestCount = entry.getValue();
+                tiedTeamIds.clear();
+                tiedTeamIds.add(entry.getKey());
+            } else if (entry.getValue() == bestCount) {
+                tiedTeamIds.add(entry.getKey());
+            }
+        }
+
+        if (tiedTeamIds.isEmpty()) {
+            return null;
+        }
+
+        if (
+            validClaimant(lastCoreAttacker)
+                && tiedTeamIds.contains(lastCoreAttacker.id)
+        ) {
+            return lastCoreAttacker;
+        }
+
+        return Team.get(tiedTeamIds.get(0));
+    }
+
+    private boolean validClaimant(Team team) {
+        return team != null
+            && team != FALLEN_TEAM
+            && team != Team.derelict
+            && isActivePersonalTeam(team.id);
+    }
+
+    private List<String> moveEliminatedTeamPlayersToFallen(
+        Team defenderTeam,
+        Team claimantTeam
+    ) {
+        List<String> affectedUuids = new ArrayList<>();
+
+        for (Map.Entry<String, Integer> entry : teamIdByPlayerUuid.entrySet()) {
+            if (entry.getValue() != defenderTeam.id) {
+                continue;
+            }
+
+            String uuid = entry.getKey();
+            affectedUuids.add(uuid);
+            entry.setValue(FALLEN_TEAM_ID);
+
+            if (claimantTeam == null) {
+                claimTeamIdByPlayerUuid.remove(uuid);
+            } else {
+                claimTeamIdByPlayerUuid.put(uuid, claimantTeam.id);
+            }
+
+            Player player = onlinePlayer(uuid);
+
+            if (player != null) {
+                assignPlayerToTeam(player, FALLEN_TEAM);
+                player.sendMessage("[scarlet]Your team was eliminated. You are now Fallen.[]");
+
+                if (claimantTeam != null) {
+                    player.sendMessage(
+                        "[accent]You were claimed by "
+                            + displayTeam(claimantTeam)
+                            + "'s team.[]"
+                    );
+                }
+            }
+        }
+
+        return affectedUuids;
+    }
+
+    private void transferExistingClaims(
+        Team eliminatedClaimant,
+        Team replacementClaimant
+    ) {
+        List<String> affectedUuids = new ArrayList<>();
+
+        for (Map.Entry<String, Integer> entry : claimTeamIdByPlayerUuid.entrySet()) {
+            if (entry.getValue() == eliminatedClaimant.id) {
+                affectedUuids.add(entry.getKey());
+            }
+        }
+
+        for (String uuid : affectedUuids) {
+            if (replacementClaimant == null) {
+                claimTeamIdByPlayerUuid.remove(uuid);
+            } else {
+                claimTeamIdByPlayerUuid.put(uuid, replacementClaimant.id);
+            }
+        }
     }
 
     private boolean ownsAnyHex(int teamId) {
@@ -667,7 +853,105 @@ final class TeamManager {
         victoryHandler.get(winner);
     }
 
-    private String displayTeam(Team team) {
+    boolean isFallenPlayer(Player player) {
+        return player != null
+            && teamIdByPlayerUuid.getOrDefault(
+                player.uuid(),
+                FALLEN_TEAM_ID
+            ) == FALLEN_TEAM_ID;
+    }
+
+    boolean isLeader(Player player) {
+        if (player == null || player.team() == FALLEN_TEAM) {
+            return false;
+        }
+
+        return player.uuid().equals(
+            leaderUuidByTeamId.get(player.team().id)
+        );
+    }
+
+    boolean isActivePersonalTeam(int teamId) {
+        return teamId != FALLEN_TEAM_ID
+            && !eliminatedTeamIds.contains(teamId)
+            && ownsAnyHex(teamId);
+    }
+
+    Player onlineLeader(Team team) {
+        if (team == null) {
+            return null;
+        }
+
+        String leaderUuid = leaderUuidByTeamId.get(team.id);
+
+        return leaderUuid == null ? null : onlinePlayer(leaderUuid);
+    }
+
+    List<Team> activeTeamsWithOnlineLeader() {
+        List<Team> result = new ArrayList<>();
+
+        for (int teamId : personalTeamCreationOrder) {
+            Team team = Team.get(teamId);
+
+            if (
+                isActivePersonalTeam(teamId)
+                    && onlineLeader(team) != null
+            ) {
+                result.add(team);
+            }
+        }
+
+        return result;
+    }
+
+    Integer claimTeamId(String playerUuid) {
+        return claimTeamIdByPlayerUuid.get(playerUuid);
+    }
+
+    boolean joinFallenPlayerToTeam(Player player, Team targetTeam) {
+        if (
+            player == null
+                || targetTeam == null
+                || !isFallenPlayer(player)
+                || !isActivePersonalTeam(targetTeam.id)
+        ) {
+            return false;
+        }
+
+        Integer claimantTeamId =
+            claimTeamIdByPlayerUuid.get(player.uuid());
+
+        if (
+            claimantTeamId != null
+                && claimantTeamId != targetTeam.id
+        ) {
+            return false;
+        }
+
+        teamIdByPlayerUuid.put(player.uuid(), targetTeam.id);
+        claimTeamIdByPlayerUuid.remove(player.uuid());
+        assignPlayerToTeam(player, targetTeam);
+
+        player.sendMessage(
+            "[green]You joined "
+                + displayTeam(targetTeam)
+                + "'s team.[]"
+        );
+
+        return true;
+    }
+
+    private Player onlinePlayer(String uuid) {
+        for (Player player : Groups.player) {
+            if (player != null && player.uuid().equals(uuid)) {
+                return player;
+            }
+        }
+
+        return null;
+    }
+
+    String displayTeam(Team team) {
         if (team == FALLEN_TEAM) {
             return "Fallen";
         }

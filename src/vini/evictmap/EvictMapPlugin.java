@@ -11,6 +11,7 @@ import mindustry.game.EventType.GameOverEvent;
 import mindustry.game.EventType.PlayEvent;
 import mindustry.game.EventType.Trigger;
 import mindustry.game.EventType.PlayerJoin;
+import mindustry.game.EventType.PlayerLeave;
 import mindustry.game.EventType.WorldLoadEvent;
 import mindustry.game.Team;
 import mindustry.gen.Groups;
@@ -178,10 +179,13 @@ public class EvictMapPlugin extends Plugin {
         new AttritionManager(teamManager, settings);
     private final EvictCommands evictCommands =
         new EvictCommands(teamManager, attritionManager, settings);
+    private final InviteManager inviteManager =
+        new InviteManager(teamManager);
 
     @Override
     public void init() {
         settings.load();
+        teamManager.setInviteManager(inviteManager);
 
         Events.on(WorldLoadEvent.class, event -> {
             if (!autoGenerate || refreshingWorldIndexes) {
@@ -223,6 +227,7 @@ public class EvictMapPlugin extends Plugin {
         });
 
         Events.on(PlayerJoin.class, event -> teamManager.handlePlayerJoin(event.player));
+        Events.on(PlayerLeave.class, event -> inviteManager.handlePlayerLeave(event.player));
         Events.on(
             CoreChangeEvent.class,
             event -> teamManager.handleCoreChange(event.core, attritionManager)
@@ -233,12 +238,13 @@ public class EvictMapPlugin extends Plugin {
             evictCommands.update();
         });
 
-        Log.info("[EvictMapGenerator] Loaded. Code revision 0.9.6. Use 'evictstatus' for commands and current settings.");
+        Log.info("[EvictMapGenerator] Loaded. Code revision 0.10.0. Use 'evictstatus' for commands and current settings.");
     }
 
     @Override
     public void registerClientCommands(CommandHandler handler) {
         evictCommands.registerClientCommands(handler);
+        inviteManager.registerClientCommands(handler);
     }
 
     @Override
@@ -488,6 +494,7 @@ public class EvictMapPlugin extends Plugin {
         );
         attritionManager.beginRound();
         evictCommands.beginRound();
+        inviteManager.beginRound();
         teamManager.assignConnectedPlayers();
 
         lastSeed = seed;
