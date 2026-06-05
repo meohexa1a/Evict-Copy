@@ -2,7 +2,7 @@
   "name": "EvictMapGenerator",
   "author": "Vini2309",
   "main": "vini.evictmap.EvictMapPlugin",
-  "description": "Server-side Evict-style PvP generator with procedural hex terrain, personal starts, delayed captures, attrition, team-scoped /fullassault, admin dev commands, persistent tuning settings and a strict editor-style ore-preset test while leaving water and tar unchanged.",
-  "version": "0.9.4",
+  "description": "Server-side Evict-style PvP generator with procedural hex terrain, persistent editor-style ore presets configurable from the server console, personal starts, delayed captures, attrition, team-scoped /fullassault, admin dev commands and automatic random-seed resets.",
+  "version": "0.9.5",
   "minGameVersion": "157.4"
 }
