@@ -563,9 +563,28 @@ final class TeamManager {
         }
 
         /**
-         * The center should already be empty. Clear any unexpected synthetic
-         * block that appeared during the delay and place the attacker's small
-         * 3x3 Core Shard without adding any bonus items.
+         * Wipe the complete captured hex a second time immediately before the
+         * replacement core appears.
+         *
+         * This intentionally removes anything built during the five-second
+         * empty-core window. Without the second wipe, players could abuse that
+         * delay to preserve or quickly establish buildings in the captured
+         * hex before the replacement Core Shard appears.
+         */
+        int delayedWindowRemovedBuildings =
+            clearSyntheticBuildingsInsideHex(slot);
+
+        Log.info(
+            "[EvictMapGenerator] Removed @ synthetic buildings built or remaining during the 5-second capture window at hex (@,@).",
+            delayedWindowRemovedBuildings,
+            slot.col,
+            slot.row
+        );
+
+        /**
+         * The center should now be empty. Clear any unexpected synthetic
+         * remnant and place the attacker's small 3x3 Core Shard without adding
+         * any bonus items.
          */
         if (centerTile.synthetic()) {
             centerTile.removeNet();
@@ -849,9 +868,15 @@ final class TeamManager {
         /**
          * Logical ownership changes before building destruction so CoreChange
          * events triggered by the surrender cannot create captures.
+         *
+         * Keep the surrendered slots so each one receives a Fallen Core Shard
+         * immediately after the surrendered team's buildings are removed.
          */
+        List<HexSlot> surrenderedSlots = new ArrayList<>();
+
         for (HexSlot slot : slots) {
             if (effectiveOwnerTeamId(slot) == team.id) {
+                surrenderedSlots.add(slot);
                 slot.ownerTeamId = FALLEN_TEAM_ID;
                 slot.pendingCaptureTeamId = FALLEN_TEAM_ID;
                 slot.capturing = false;
@@ -859,6 +884,7 @@ final class TeamManager {
         }
 
         clearSurrenderedTeamAssets(team);
+        placeFallenCoresAfterSurrender(surrenderedSlots);
         eliminatedTeamIds.add(team.id);
 
         List<String> surrenderedPlayerUuids =
@@ -895,6 +921,39 @@ final class TeamManager {
 
         checkVictory();
         return true;
+    }
+
+    private void placeFallenCoresAfterSurrender(
+        List<HexSlot> surrenderedSlots
+    ) {
+        for (HexSlot slot : surrenderedSlots) {
+            Tile centerTile = Vars.world.tile(slot.x, slot.y);
+
+            if (centerTile == null) {
+                Log.err(
+                    "[EvictMapGenerator] Cannot place Fallen surrender core: missing center tile for hex (@,@).",
+                    slot.col,
+                    slot.row
+                );
+                continue;
+            }
+
+            /**
+             * All surrendered buildings were already removed. Clear any
+             * unexpected synthetic remnant and restore the surrendered hex as
+             * a normal Fallen-owned Nucleus immediately.
+             */
+            if (centerTile.synthetic()) {
+                centerTile.removeNet();
+            }
+
+            centerTile.setNet(Blocks.coreNucleus, FALLEN_TEAM, 0);
+        }
+
+        Log.info(
+            "[EvictMapGenerator] Restored @ surrendered hexes with Fallen Nucleus cores.",
+            surrenderedSlots.size()
+        );
     }
 
     private void clearSurrenderedTeamAssets(Team team) {
