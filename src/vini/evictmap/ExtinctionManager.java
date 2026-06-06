@@ -4,7 +4,9 @@ import arc.util.Time;
 import mindustry.game.Team;
 import mindustry.gen.Call;
 
+import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
 /**
@@ -29,13 +31,25 @@ final class ExtinctionManager {
     private static final float EXTINCTION_START_TICKS = 90f * 60f * 60f;
 
     private static final float RING_INTERVAL_TICKS = 90f * 60f;
+    /**
+     * Logical core deletion is cheap enough to stream quickly. Terrain removal
+     * remains separately throttled inside TeamManager.
+     */
+    private static final float HEX_COLLAPSE_INTERVAL_TICKS = 1f * 60f;
     private static final float FINAL_HOLD_TICKS = 4f * 60f * 60f;
 
     private final TeamManager teamManager;
 
     private float elapsedTicks = 0f;
     private float nextRingCollapseTicks = Float.POSITIVE_INFINITY;
+    private float nextHexCollapseTicks = Float.POSITIVE_INFINITY;
     private float finalPhaseEndTicks = Float.POSITIVE_INFINITY;
+
+    private final ArrayDeque<TeamManager.HexSlot> pendingRingSlots =
+        new ArrayDeque<>();
+
+    private int collapsingRingDistance = -1;
+    private boolean waitingForTerrainDrain = false;
 
     private boolean warningTenMinutesSent = false;
     private boolean warningFiveMinutesSent = false;
@@ -51,7 +65,12 @@ final class ExtinctionManager {
     void beginRound() {
         elapsedTicks = 0f;
         nextRingCollapseTicks = Float.POSITIVE_INFINITY;
+        nextHexCollapseTicks = Float.POSITIVE_INFINITY;
         finalPhaseEndTicks = Float.POSITIVE_INFINITY;
+
+        pendingRingSlots.clear();
+        collapsingRingDistance = -1;
+        waitingForTerrainDrain = false;
 
         warningTenMinutesSent = false;
         warningFiveMinutesSent = false;
@@ -112,13 +131,7 @@ final class ExtinctionManager {
         }
 
         if (extinctionStarted && !finalPhase) {
-            while (
-                !finalPhase
-                    && teamManager.isRoundActiveForSystems()
-                    && elapsedTicks >= nextRingCollapseTicks
-            ) {
-                collapseNextRing();
-            }
+            updateRingCollapse();
         }
 
         if (!finalPhase || !teamManager.isRoundActiveForSystems()) {
@@ -182,13 +195,56 @@ final class ExtinctionManager {
 
         Call.sendMessage(
             "[scarlet]EXTINCTION HAS STARTED. "
-                + "The outermost hex ring is collapsing now.[]"
+                + "The outermost ring is collapsing core by core.[]"
         );
 
-        collapseNextRing();
+        nextRingCollapseTicks = elapsedTicks;
+        updateRingCollapse();
     }
 
-    private void collapseNextRing() {
+    private void updateRingCollapse() {
+        if (
+            !teamManager.isRoundActiveForSystems()
+                || finalPhase
+        ) {
+            return;
+        }
+
+        if (
+            pendingRingSlots.isEmpty()
+                && !waitingForTerrainDrain
+                && elapsedTicks >= nextRingCollapseTicks
+        ) {
+            beginNextRingCollapse();
+        }
+
+        if (
+            !pendingRingSlots.isEmpty()
+                && elapsedTicks >= nextHexCollapseTicks
+        ) {
+            TeamManager.HexSlot slot = pendingRingSlots.removeFirst();
+
+            teamManager.collapseHexesForExtinction(
+                Collections.singletonList(slot)
+            );
+
+            nextHexCollapseTicks =
+                elapsedTicks + HEX_COLLAPSE_INTERVAL_TICKS;
+
+            if (pendingRingSlots.isEmpty()) {
+                waitingForTerrainDrain = true;
+            }
+        }
+
+        if (
+            waitingForTerrainDrain
+                && !teamManager.hasPendingExtinctionTerrainChanges()
+        ) {
+            finishCurrentRingCollapse();
+        }
+    }
+
+    private void beginNextRingCollapse() {
         int outermostDistance = -1;
 
         for (TeamManager.HexSlot slot : teamManager.slots()) {
@@ -217,7 +273,21 @@ final class ExtinctionManager {
             }
         }
 
-        teamManager.collapseHexesForExtinction(collapsing);
+        pendingRingSlots.clear();
+        pendingRingSlots.addAll(collapsing);
+        collapsingRingDistance = outermostDistance;
+        waitingForTerrainDrain = false;
+        nextHexCollapseTicks = elapsedTicks;
+
+        Call.sendMessage(
+            "[scarlet]EXTINCTION: ring "
+                + outermostDistance
+                + " is collapsing core by core.[]"
+        );
+    }
+
+    private void finishCurrentRingCollapse() {
+        waitingForTerrainDrain = false;
 
         if (!teamManager.isRoundActiveForSystems()) {
             return;
@@ -228,13 +298,14 @@ final class ExtinctionManager {
             return;
         }
 
-        nextRingCollapseTicks = elapsedTicks + RING_INTERVAL_TICKS;
-
         Call.sendMessage(
             "[scarlet]EXTINCTION: ring "
-                + outermostDistance
-                + " collapsed. The next ring collapses in 90 seconds.[]"
+                + collapsingRingDistance
+                + " fully collapsed. The next ring collapses in 90 seconds.[]"
         );
+
+        nextRingCollapseTicks = elapsedTicks + RING_INTERVAL_TICKS;
+        collapsingRingDistance = -1;
     }
 
     private boolean onlyFinalSevenRemain() {
