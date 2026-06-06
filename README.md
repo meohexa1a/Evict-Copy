@@ -39,6 +39,12 @@ A server-side Mindustry plugin for Evict-style persistent PvP on a procedurally 
 /spawnunit [unit] [amount] [team]
 ```
 
+Extinction terrain streaming can be adjusted from the server console:
+
+```text
+evictextinctiontiles [amount]
+```
+
 Ore presets can be adjusted from the server console:
 
 ```text
