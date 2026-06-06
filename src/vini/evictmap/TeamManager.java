@@ -105,7 +105,8 @@ final class TeamManager {
      * packets in one tick can disconnect clients, so collapsed terrain is
      * streamed gradually.
      */
-    private static final int EXTINCTION_TERRAIN_CHANGES_PER_TICK = 24;
+    private static final int DEFAULT_EXTINCTION_TERRAIN_CHANGES_PER_TICK = 24;
+    private static final int MAX_EXTINCTION_TERRAIN_CHANGES_PER_TICK = 4096;
 
     private static final int CENTER_ROW = ROWS / 2;
     private static final int CENTER_COL = SHORT_ROW_COLS / 2;
@@ -134,6 +135,8 @@ final class TeamManager {
     private boolean resetting = false;
     private boolean suppressCoreChangeEvents = false;
     private boolean extinctionActive = false;
+    private int extinctionTerrainChangesPerTick =
+        DEFAULT_EXTINCTION_TERRAIN_CHANGES_PER_TICK;
     private long roundSerial = 0L;
 
     TeamManager(Cons<Team> victoryHandler) {
@@ -1233,7 +1236,7 @@ final class TeamManager {
 
         try {
             while (
-                changed < EXTINCTION_TERRAIN_CHANGES_PER_TICK
+                changed < extinctionTerrainChangesPerTick
                     && !extinctionTerrainQueue.isEmpty()
             ) {
                 Tile tile = extinctionTerrainQueue.removeFirst();
@@ -1256,6 +1259,25 @@ final class TeamManager {
 
     boolean hasPendingExtinctionTerrainChanges() {
         return !extinctionTerrainQueue.isEmpty();
+    }
+
+    int extinctionTerrainChangesPerTick() {
+        return extinctionTerrainChangesPerTick;
+    }
+
+    void setExtinctionTerrainChangesPerTick(int amount) {
+        if (
+            amount < 1
+                || amount > MAX_EXTINCTION_TERRAIN_CHANGES_PER_TICK
+        ) {
+            throw new IllegalArgumentException(
+                "Extinction terrain changes per tick must be between 1 and "
+                    + MAX_EXTINCTION_TERRAIN_CHANGES_PER_TICK
+                    + "."
+            );
+        }
+
+        extinctionTerrainChangesPerTick = amount;
     }
 
     void finishExtinction(Team winner, boolean overtime) {
