@@ -1,0 +1,39 @@
+# Evict Map Generator Architecture
+
+The plugin is split by responsibility so gameplay changes do not require editing one large class.
+
+## Lifecycle
+
+`EvictMapPlugin` is the composition root. It wires events, starts systems for a new round and triggers the next map after a victory.
+
+`EvictRules` applies the fixed PvP rule set.
+
+`EvictRuntimeState` stores the active auto-generation setting and map seeds.
+
+## Generation
+
+`EvictTerrainGenerator` owns hex geometry, wall templates, neutral cores and generation orchestration.
+
+`ResourceGenerator` owns ores, water and oil.
+
+`StartLoadout` owns the one-time personal starting schematic and resources.
+
+## Round Systems
+
+`TeamManager` owns personal teams, leaders, claims, elimination, surrender and victory conditions.
+
+`CaptureManager` owns the delayed core-capture lifecycle and both captured-hex cleanup passes.
+
+`AttritionManager` owns capture and long-range attrition.
+
+`InviteManager` owns requests and claimed-player invitations.
+
+## Commands
+
+`EvictClientCommands` is the single registration entry point for player-facing commands.
+
+`EvictConsoleCommands` contains dedicated-server console commands.
+
+`EvictCommandCatalog` defines command categories used by the filtered help menu.
+
+`EvictHelpCommands`, `EvictCommands` and `RoundEndCommands` contain focused player command implementations.
