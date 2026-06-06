@@ -36,6 +36,7 @@ final class EvictCommands {
 
     private final TeamManager teamManager;
     private final AttritionManager attritionManager;
+    private final ExtinctionManager extinctionManager;
     private final EvictSettings settings;
     private final Set<Integer> fullAssaultTeamIds = new HashSet<>();
 
@@ -45,10 +46,12 @@ final class EvictCommands {
     EvictCommands(
         TeamManager teamManager,
         AttritionManager attritionManager,
+        ExtinctionManager extinctionManager,
         EvictSettings settings
     ) {
         this.teamManager = teamManager;
         this.attritionManager = attritionManager;
+        this.extinctionManager = extinctionManager;
         this.settings = settings;
     }
 
@@ -63,6 +66,12 @@ final class EvictCommands {
             "forceend",
             "Admin only: force-end the current round with your current team as winner.",
             (args, player) -> forceEnd(player)
+        );
+
+        handler.<Player>register(
+            "extinction",
+            "Admin only: start EXTINCTION immediately for testing or an early event.",
+            (args, player) -> forceExtinction(args, player)
         );
 
         handler.<Player>register(
@@ -204,6 +213,27 @@ final class EvictCommands {
             player.sendMessage("[green]Round end triggered.[]");
         } else {
             player.sendMessage("[scarlet]No active round can be ended right now.[]");
+        }
+    }
+
+    private void forceExtinction(String[] args, Player player) {
+        if (!requireAdmin(player)) {
+            return;
+        }
+
+        if (args.length != 0) {
+            player.sendMessage("[scarlet]Use: /extinction[]");
+            return;
+        }
+
+        if (extinctionManager.forceStart()) {
+            player.sendMessage("[green]EXTINCTION started immediately.[]");
+        } else {
+            player.sendMessage(
+                "[scarlet]EXTINCTION cannot start right now. "
+                    + "The round must be active, at least one personal team "
+                    + "must exist, and EXTINCTION must not already be active.[]"
+            );
         }
     }
 

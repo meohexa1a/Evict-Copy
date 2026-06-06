@@ -154,6 +154,28 @@ final class ExtinctionManager {
         return warningTenMinutesSent || elapsedTicks >= WARNING_TEN_MINUTES_TICKS;
     }
 
+    boolean forceStart() {
+        if (
+            !teamManager.isRoundActiveForSystems()
+                || !teamManager.isRoundActivated()
+                || extinctionStarted
+        ) {
+            return false;
+        }
+
+        /**
+         * An admin-triggered early Extinction skips the warning countdown and
+         * immediately collapses the outermost live ring.
+         */
+        warningTenMinutesSent = true;
+        warningFiveMinutesSent = true;
+        warningOneMinuteSent = true;
+        elapsedTicks = EXTINCTION_START_TICKS;
+
+        startExtinction();
+        return true;
+    }
+
     private void startExtinction() {
         extinctionStarted = true;
         teamManager.setExtinctionActive(true);

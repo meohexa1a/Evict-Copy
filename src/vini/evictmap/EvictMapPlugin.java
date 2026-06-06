@@ -36,14 +36,19 @@ public class EvictMapPlugin extends Plugin {
     private final AttritionManager attritionManager =
         new AttritionManager(teamManager, settings);
 
-    private final EvictCommands evictCommands =
-        new EvictCommands(teamManager, attritionManager, settings);
-
     private final InviteManager inviteManager =
         new InviteManager(teamManager);
 
     private final ExtinctionManager extinctionManager =
         new ExtinctionManager(teamManager);
+
+    private final EvictCommands evictCommands =
+        new EvictCommands(
+            teamManager,
+            attritionManager,
+            extinctionManager,
+            settings
+        );
 
     private final RoundEndCommands roundEndCommands =
         new RoundEndCommands(teamManager, extinctionManager);
@@ -139,7 +144,7 @@ public class EvictMapPlugin extends Plugin {
         });
 
         Log.info(
-            "[EvictMapGenerator] Loaded. Code revision 1.2.0. Use 'evictstatus' for commands and current settings."
+            "[EvictMapGenerator] Loaded. Code revision 1.2.1. Use 'evictstatus' for commands and current settings."
         );
     }
 

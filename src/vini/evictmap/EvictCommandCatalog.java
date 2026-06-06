@@ -15,6 +15,7 @@ final class EvictCommandCatalog {
         Set<String> commands = new HashSet<>();
 
         commands.add("forceend");
+        commands.add("extinction");
         commands.add("attritioncore");
         commands.add("attritionrange");
         commands.add("wall");
