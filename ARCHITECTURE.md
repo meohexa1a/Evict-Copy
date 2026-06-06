@@ -26,6 +26,8 @@ The plugin is split by responsibility so gameplay changes do not require editing
 
 `AttritionManager` owns capture and long-range attrition.
 
+`ExtinctionManager` owns the timed late-game ring collapse and center-core final phase.
+
 `InviteManager` owns requests and claimed-player invitations.
 
 ## Commands
