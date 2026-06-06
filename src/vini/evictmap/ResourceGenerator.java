@@ -23,9 +23,9 @@ import java.util.Set;
  * - resources may overlap visually and form mixed clusters
  *
  * Fairness corrections remain intentionally tiny:
- * - every normal hex receives at least 2 water tiles total, not 2 water patches
+ * - water has no per-hex minimum and may be completely absent from a hex
  * - every normal hex receives at least a few tiles of each ore
- * - missing resources are repaired at local noise maxima, not stamped evenly
+ * - missing ores are repaired at local noise maxima, not stamped evenly
  */
 final class ResourceGenerator {
 
@@ -139,14 +139,18 @@ final class ResourceGenerator {
     private static final double RARE_LIQUID_PATCH_CHANCE = 0.10;
 
     /**
-     * Every playable hex receives one natural water patch. The later fallback
-     * still guarantees at least 2 tiles if a patch cannot fully grow because
-     * of local terrain constraints.
+     * Water has no per-hex guarantee anymore.
+     *
+     * The generator still performs roughly one patch attempt per playable
+     * hex, but each attempt chooses a random playable hex. This means some
+     * hexes receive no water while others may receive multiple patches.
+     *
+     * Patch sizes range from 1 to 9 tiles. Larger patches are progressively
+     * rarer through a descending weighted roll:
+     * size 1 has weight 9, size 2 has weight 8, ... size 9 has weight 1.
      */
-    private static final int WATER_NORMAL_PATCH_MIN_SIZE = 4;
-    private static final int WATER_NORMAL_PATCH_MAX_SIZE = 6;
-    private static final int WATER_RARE_PATCH_MIN_SIZE = 7;
-    private static final int WATER_RARE_PATCH_MAX_SIZE = 12;
+    private static final int WATER_PATCH_MIN_SIZE = 1;
+    private static final int WATER_PATCH_MAX_SIZE = 9;
     private static final int WATER_PATCH_LOCAL_RADIUS = 3;
 
     /**
@@ -163,15 +167,6 @@ final class ResourceGenerator {
     // ---------------------------------------------------------------------
     // Tiny fairness corrections
     // ---------------------------------------------------------------------
-
-    /**
-     * Clarification from testing:
-     * minimum water means 2 water tiles total, not 2 independent water spawns.
-     */
-    private static final int MIN_WATER_TILES_PER_HEX = 2;
-    private static final int WATER_FALLBACK_MIN_SIZE = 2;
-    private static final int WATER_FALLBACK_MAX_SIZE = 4;
-    private static final int WATER_FALLBACK_MAX_LOCAL_RADIUS = 2;
 
     /**
      * Guarantees should be nearly invisible.
@@ -207,7 +202,6 @@ final class ResourceGenerator {
          * never overwrites a water tile.
          */
         generateWaterPatches(seed, correctionRandom, centers, corrections);
-        ensureMinimumWaterTiles(seed, correctionRandom, centers, corrections);
         generateTarPatches(seed, correctionRandom, centers, corrections);
 
         // Ores afterward. Later presets may naturally overwrite earlier ones.
@@ -229,8 +223,9 @@ final class ResourceGenerator {
     static String presetDescription(EvictSettings settings) {
         return "persistent editor-style ores: "
             + settings.compactOreSettings()
-            + " + bounded water/oil patches with 10% rare large patches"
-            + " + tiny per-hex fairness repairs";
+            + " + water patches sized 1-9 with larger patches increasingly rare"
+            + " + bounded oil patches with 10% rare large patches"
+            + " + tiny ore-only per-hex fairness repairs";
     }
 
     // ---------------------------------------------------------------------
@@ -243,20 +238,22 @@ final class ResourceGenerator {
         List<HexCenter> centers,
         CorrectionCounter corrections
     ) {
-        for (HexCenter center : centers) {
+        if (centers.isEmpty()) {
+            return;
+        }
+
+        /**
+         * Keep approximately the previous global patch count without tying one
+         * guaranteed patch to every core. Random center selection permits both
+         * completely dry hexes and naturally wetter hexes.
+         */
+        for (int patch = 0; patch < centers.size(); patch++) {
+            HexCenter center = centers.get(random.nextInt(centers.size()));
             TilePoint start = bestLiquidPatchStart(seed, center, WATER_PRESET);
 
             if (start == null) {
                 continue;
             }
-
-            int targetSize = choosePatchSize(
-                random,
-                WATER_NORMAL_PATCH_MIN_SIZE,
-                WATER_NORMAL_PATCH_MAX_SIZE,
-                WATER_RARE_PATCH_MIN_SIZE,
-                WATER_RARE_PATCH_MAX_SIZE
-            );
 
             int placed = growFloorPatch(
                 seed,
@@ -264,7 +261,7 @@ final class ResourceGenerator {
                 center,
                 start,
                 Blocks.darksandWater,
-                targetSize,
+                chooseWeightedWaterPatchSize(random),
                 WATER_PATCH_LOCAL_RADIUS
             );
 
@@ -272,6 +269,34 @@ final class ResourceGenerator {
                 corrections.waterGeneratedPatches++;
             }
         }
+    }
+
+    private static int chooseWeightedWaterPatchSize(Random random) {
+        int totalWeight = 0;
+
+        for (
+            int size = WATER_PATCH_MIN_SIZE;
+            size <= WATER_PATCH_MAX_SIZE;
+            size++
+        ) {
+            totalWeight += WATER_PATCH_MAX_SIZE - size + 1;
+        }
+
+        int roll = random.nextInt(totalWeight);
+
+        for (
+            int size = WATER_PATCH_MIN_SIZE;
+            size <= WATER_PATCH_MAX_SIZE;
+            size++
+        ) {
+            roll -= WATER_PATCH_MAX_SIZE - size + 1;
+
+            if (roll < 0) {
+                return size;
+            }
+        }
+
+        return WATER_PATCH_MAX_SIZE;
     }
 
     private static void generateTarPatches(
@@ -424,89 +449,6 @@ final class ResourceGenerator {
                 }
             }
         }
-    }
-
-    // ---------------------------------------------------------------------
-    // Water guarantee: 2 tiles total per normal hex
-    // ---------------------------------------------------------------------
-
-    private static void ensureMinimumWaterTiles(
-        int seed,
-        Random random,
-        List<HexCenter> centers,
-        CorrectionCounter corrections
-    ) {
-        for (HexCenter center : centers) {
-            int currentWaterTiles = countWaterTiles(center);
-
-            if (currentWaterTiles >= MIN_WATER_TILES_PER_HEX) {
-                continue;
-            }
-
-            TilePoint start = bestWaterFallbackStart(seed, center);
-
-            if (start == null) {
-                continue;
-            }
-
-            int targetSize = Math.max(
-                MIN_WATER_TILES_PER_HEX - currentWaterTiles,
-                inclusiveRandom(
-                    random,
-                    WATER_FALLBACK_MIN_SIZE,
-                    WATER_FALLBACK_MAX_SIZE
-                )
-            );
-
-            int placed = growFloorPatch(
-                seed,
-                WATER_PRESET,
-                center,
-                start,
-                Blocks.darksandWater,
-                targetSize,
-                WATER_FALLBACK_MAX_LOCAL_RADIUS
-            );
-
-            if (placed > 0) {
-                corrections.waterFallbackRepairs++;
-            }
-        }
-    }
-
-    private static int countWaterTiles(HexCenter center) {
-        int count = 0;
-
-        for (
-            int y = center.y - LIQUID_MAX_RADIUS;
-            y <= center.y + LIQUID_MAX_RADIUS;
-            y++
-        ) {
-            for (
-                int x = center.x - LIQUID_MAX_RADIUS;
-                x <= center.x + LIQUID_MAX_RADIUS;
-                x++
-            ) {
-                if (!insideLiquidMaskForCenter(x, y, center)) {
-                    continue;
-                }
-
-                Tile tile = Vars.world.tile(x, y);
-
-                if (tile != null && tile.floor() == Blocks.darksandWater) {
-                    count++;
-                }
-            }
-        }
-
-        return count;
-    }
-
-    private static TilePoint bestWaterFallbackStart(
-        int seed,
-        HexCenter center
-    ) {
-        return bestLiquidPatchStart(seed, center, WATER_PRESET);
     }
 
     // ---------------------------------------------------------------------
@@ -1005,7 +947,6 @@ final class ResourceGenerator {
             thoriumTiles,
             corrections.waterGeneratedPatches,
             corrections.tarGeneratedPatches,
-            corrections.waterFallbackRepairs,
             corrections.oreFallbackRepairs
         );
     }
@@ -1024,7 +965,6 @@ final class ResourceGenerator {
         int thoriumTiles,
         int waterGeneratedPatches,
         int tarGeneratedPatches,
-        int waterFallbackRepairs,
         int oreFallbackRepairs
     ) {
         String compact() {
@@ -1038,7 +978,6 @@ final class ResourceGenerator {
                 + ", thorium=" + thoriumTiles
                 + ", waterPatches=" + waterGeneratedPatches
                 + ", tarPatches=" + tarGeneratedPatches
-                + ", waterFallbackRepairs=" + waterFallbackRepairs
                 + ", oreFallbackRepairs=" + oreFallbackRepairs;
         }
     }
@@ -1066,7 +1005,6 @@ final class ResourceGenerator {
     private static final class CorrectionCounter {
         private int waterGeneratedPatches;
         private int tarGeneratedPatches;
-        private int waterFallbackRepairs;
         private int oreFallbackRepairs;
     }
 }
