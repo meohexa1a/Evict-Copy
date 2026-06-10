@@ -54,11 +54,27 @@ final class EvictSettings {
     ) {
     }
 
+    record WaterSettings(
+        double patchAttemptsPercentPerHex,
+        int normalPatchTiles,
+        double largePatchChancePercent,
+        int largePatchTiles
+    ) {
+    }
+
     private static final File SETTINGS_FILE =
         new File("config/evict-map-generator.properties");
     private static final int DEFAULT_EXTINCTION_TERRAIN_CHANGES_PER_TICK = 120;
     private static final int MIN_EXTINCTION_TERRAIN_CHANGES_PER_TICK = 1;
     private static final int MAX_EXTINCTION_TERRAIN_CHANGES_PER_TICK = 4096;
+    private static final double DEFAULT_WATER_PATCH_ATTEMPTS_PERCENT = 100d;
+    private static final int DEFAULT_WATER_NORMAL_PATCH_TILES = 3;
+    private static final double DEFAULT_WATER_LARGE_PATCH_CHANCE_PERCENT =
+        13.33d;
+    private static final int DEFAULT_WATER_LARGE_PATCH_TILES = 8;
+    private static final double MAX_WATER_PATCH_ATTEMPTS_PERCENT = 500d;
+    private static final int MIN_WATER_PATCH_TILES = 1;
+    private static final int MAX_WATER_PATCH_TILES = 64;
 
     /**
      * Capture attrition keeps the tier-based percentages.
@@ -75,6 +91,13 @@ final class EvictSettings {
     private double passagePercent = 25d;
     private int extinctionTerrainChangesPerTick =
         DEFAULT_EXTINCTION_TERRAIN_CHANGES_PER_TICK;
+    private WaterSettings waterSettings =
+        new WaterSettings(
+            DEFAULT_WATER_PATCH_ATTEMPTS_PERCENT,
+            DEFAULT_WATER_NORMAL_PATCH_TILES,
+            DEFAULT_WATER_LARGE_PATCH_CHANCE_PERCENT,
+            DEFAULT_WATER_LARGE_PATCH_TILES
+        );
 
     private final EnumMap<OreKind, OreSettings> oreSettings =
         new EnumMap<>(OreKind.class);
@@ -177,6 +200,33 @@ final class EvictSettings {
                 )
             );
 
+            setWaterSettingsWithoutSaving(
+                readDouble(
+                    properties,
+                    "water.patchAttemptsPercentPerHex",
+                    readDouble(
+                        properties,
+                        "water.patchAttemptsPercent",
+                        waterSettings.patchAttemptsPercentPerHex()
+                    )
+                ),
+                readInt(
+                    properties,
+                    "water.normalPatchTiles",
+                    waterSettings.normalPatchTiles()
+                ),
+                readDouble(
+                    properties,
+                    "water.largePatchChancePercent",
+                    legacyLargePatchChancePercent(properties)
+                ),
+                readInt(
+                    properties,
+                    "water.largePatchTiles",
+                    waterSettings.largePatchTiles()
+                )
+            );
+
             for (OreKind kind : OreKind.values()) {
                 OreSettings current = ore(kind);
 
@@ -209,10 +259,11 @@ final class EvictSettings {
             save();
 
             Log.info(
-                "[EvictMapGenerator] Loaded persistent settings: coreAttrition=@; rangeAttrition=@; walls=@; extinctionTerrain=@; ores=@",
+                "[EvictMapGenerator] Loaded persistent settings: coreAttrition=@; rangeAttrition=@; walls=@; water=@; extinctionTerrain=@; ores=@",
                 compactCoreAttritionSettings(),
                 compactRangeAttritionSettings(),
                 compactWallSettings(),
+                compactWaterSettings(),
                 compactExtinctionTerrainSettings(),
                 compactOreSettings()
             );
@@ -258,6 +309,21 @@ final class EvictSettings {
         save();
     }
 
+    void setWaterSettings(
+        double patchAttemptsPercentPerHex,
+        int normalPatchTiles,
+        double largePatchChancePercent,
+        int largePatchTiles
+    ) {
+        setWaterSettingsWithoutSaving(
+            patchAttemptsPercentPerHex,
+            normalPatchTiles,
+            largePatchChancePercent,
+            largePatchTiles
+        );
+        save();
+    }
+
     void setOreSettings(
         OreKind kind,
         double scale,
@@ -277,6 +343,10 @@ final class EvictSettings {
 
     OreSettings ore(OreKind kind) {
         return oreSettings.get(kind);
+    }
+
+    WaterSettings water() {
+        return waterSettings;
     }
 
     double coreAttritionTier1To3Chance() {
@@ -334,6 +404,18 @@ final class EvictSettings {
 
     String compactExtinctionTerrainSettings() {
         return Integer.toString(extinctionTerrainChangesPerTick);
+    }
+
+    String compactWaterSettings() {
+        return "patch-attempts-per-hex="
+            + formatPercent(waterSettings.patchAttemptsPercentPerHex())
+            + "%, normal="
+            + waterSettings.normalPatchTiles()
+            + " tiles, large="
+            + formatPercent(waterSettings.largePatchChancePercent())
+            + "% at "
+            + waterSettings.largePatchTiles()
+            + " tiles";
     }
 
     String compactOreSettings() {
@@ -421,6 +503,43 @@ final class EvictSettings {
         extinctionTerrainChangesPerTick = amount;
     }
 
+    private void setWaterSettingsWithoutSaving(
+        double patchAttemptsPercentPerHex,
+        int normalPatchTiles,
+        double largePatchChancePercent,
+        int largePatchTiles
+    ) {
+        patchAttemptsPercentPerHex = validateRange(
+            "Water patch attempts per hex",
+            patchAttemptsPercentPerHex,
+            0d,
+            MAX_WATER_PATCH_ATTEMPTS_PERCENT
+        );
+        normalPatchTiles = validateIntRange(
+            "Water normal patch tiles",
+            normalPatchTiles,
+            MIN_WATER_PATCH_TILES,
+            MAX_WATER_PATCH_TILES
+        );
+        largePatchChancePercent = validatePercentage(
+            "Water large patch chance",
+            largePatchChancePercent
+        );
+        largePatchTiles = validateIntRange(
+            "Water large patch tiles",
+            largePatchTiles,
+            MIN_WATER_PATCH_TILES,
+            MAX_WATER_PATCH_TILES
+        );
+
+        waterSettings = new WaterSettings(
+            patchAttemptsPercentPerHex,
+            normalPatchTiles,
+            largePatchChancePercent,
+            largePatchTiles
+        );
+    }
+
     private void setOreSettingsWithoutSaving(
         OreKind kind,
         double scale,
@@ -475,6 +594,21 @@ final class EvictSettings {
         return value;
     }
 
+    private int validateIntRange(
+        String name,
+        int value,
+        int minimum,
+        int maximum
+    ) {
+        if (value < minimum || value > maximum) {
+            throw new IllegalArgumentException(
+                name + " must be between " + minimum + " and " + maximum + "."
+            );
+        }
+
+        return value;
+    }
+
     private double validatePercentage(String name, double value) {
         if (
             Double.isNaN(value)
@@ -516,6 +650,33 @@ final class EvictSettings {
         }
 
         return Integer.parseInt(value.trim());
+    }
+
+    private double legacyLargePatchChancePercent(Properties properties) {
+        String largeValue = properties.getProperty("water.largePatchWeight");
+
+        if (largeValue == null || largeValue.isBlank()) {
+            return waterSettings.largePatchChancePercent();
+        }
+
+        double smallWeight = readDouble(
+            properties,
+            "water.smallPatchWeight",
+            0d
+        );
+        double mediumWeight = readDouble(
+            properties,
+            "water.mediumPatchWeight",
+            0d
+        );
+        double largeWeight = Double.parseDouble(largeValue.trim());
+        double totalWeight = smallWeight + mediumWeight + largeWeight;
+
+        if (totalWeight <= 0d) {
+            return waterSettings.largePatchChancePercent();
+        }
+
+        return largeWeight * 100d / totalWeight;
     }
 
     private void save() {
@@ -565,6 +726,22 @@ final class EvictSettings {
         properties.setProperty(
             "extinction.terrainChangesPerTick",
             Integer.toString(extinctionTerrainChangesPerTick)
+        );
+        properties.setProperty(
+            "water.patchAttemptsPercentPerHex",
+            Double.toString(waterSettings.patchAttemptsPercentPerHex())
+        );
+        properties.setProperty(
+            "water.normalPatchTiles",
+            Integer.toString(waterSettings.normalPatchTiles())
+        );
+        properties.setProperty(
+            "water.largePatchChancePercent",
+            Double.toString(waterSettings.largePatchChancePercent())
+        );
+        properties.setProperty(
+            "water.largePatchTiles",
+            Integer.toString(waterSettings.largePatchTiles())
         );
 
         for (OreKind kind : OreKind.values()) {

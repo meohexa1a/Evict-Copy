@@ -146,12 +146,11 @@ final class ResourceGenerator {
      * hexes receive no water while others may receive multiple patches.
      *
      * Patch sizes range from 1 to 9 tiles. Larger patches are progressively
-     * rarer through a descending weighted roll:
-     * size 1 has weight 9, size 2 has weight 8, ... size 9 has weight 1.
+     * rarer because each normal patch has a configurable chance to upgrade
+     * into a larger patch.
      */
-    private static final int WATER_PATCH_MIN_SIZE = 1;
-    private static final int WATER_PATCH_MAX_SIZE = 9;
-    private static final int WATER_PATCH_LOCAL_RADIUS = 3;
+    private static final double DEFAULT_WATER_PATCH_ATTEMPTS_PERCENT = 100d;
+    private static final int WATER_PATCH_LOCAL_RADIUS_PADDING = 1;
 
     /**
      * Oil remains substantially rarer than water, but slightly more common
@@ -201,7 +200,13 @@ final class ResourceGenerator {
          * unrestricted global blobs. Tar is placed after water and therefore
          * never overwrites a water tile.
          */
-        generateWaterPatches(seed, correctionRandom, centers, corrections);
+        generateWaterPatches(
+            seed,
+            correctionRandom,
+            centers,
+            settings.water(),
+            corrections
+        );
         generateTarPatches(seed, correctionRandom, centers, corrections);
 
         // Ores afterward. Later presets may naturally overwrite earlier ones.
@@ -223,7 +228,8 @@ final class ResourceGenerator {
     static String presetDescription(EvictSettings settings) {
         return "persistent editor-style ores: "
             + settings.compactOreSettings()
-            + " + water patches sized 1-9 with larger patches increasingly rare"
+            + " + water patches: "
+            + settings.compactWaterSettings()
             + " + bounded oil patches with 10% rare large patches"
             + " + tiny ore-only per-hex fairness repairs";
     }
@@ -236,6 +242,7 @@ final class ResourceGenerator {
         int seed,
         Random random,
         List<HexCenter> centers,
+        EvictSettings.WaterSettings water,
         CorrectionCounter corrections
     ) {
         if (centers.isEmpty()) {
@@ -247,7 +254,13 @@ final class ResourceGenerator {
          * guaranteed patch to every core. Random center selection permits both
          * completely dry hexes and naturally wetter hexes.
          */
-        for (int patch = 0; patch < centers.size(); patch++) {
+        int patchAttempts = waterPatchAttempts(
+            random,
+            centers.size(),
+            water.patchAttemptsPercentPerHex()
+        );
+
+        for (int patch = 0; patch < patchAttempts; patch++) {
             HexCenter center = centers.get(random.nextInt(centers.size()));
             TilePoint start = bestLiquidPatchStart(seed, center, WATER_PRESET);
 
@@ -255,14 +268,15 @@ final class ResourceGenerator {
                 continue;
             }
 
+            int targetSize = chooseWaterPatchSize(random, water);
             int placed = growFloorPatch(
                 seed,
                 WATER_PRESET,
                 center,
                 start,
                 Blocks.darksandWater,
-                chooseWeightedWaterPatchSize(random),
-                WATER_PATCH_LOCAL_RADIUS
+                targetSize,
+                waterPatchLocalRadius(targetSize)
             );
 
             if (placed > 0) {
@@ -271,32 +285,44 @@ final class ResourceGenerator {
         }
     }
 
-    private static int chooseWeightedWaterPatchSize(Random random) {
-        int totalWeight = 0;
-
-        for (
-            int size = WATER_PATCH_MIN_SIZE;
-            size <= WATER_PATCH_MAX_SIZE;
-            size++
-        ) {
-            totalWeight += WATER_PATCH_MAX_SIZE - size + 1;
+    private static int waterPatchAttempts(
+        Random random,
+        int centerCount,
+        double patchAttemptsPercentPerHex
+    ) {
+        if (patchAttemptsPercentPerHex == DEFAULT_WATER_PATCH_ATTEMPTS_PERCENT) {
+            return centerCount;
         }
 
-        int roll = random.nextInt(totalWeight);
+        double exactAttempts = centerCount * patchAttemptsPercentPerHex / 100d;
+        int attempts = (int)Math.floor(exactAttempts);
+        double fractionalAttempt = exactAttempts - attempts;
 
-        for (
-            int size = WATER_PATCH_MIN_SIZE;
-            size <= WATER_PATCH_MAX_SIZE;
-            size++
+        if (
+            fractionalAttempt > 0d
+                && random.nextDouble() < fractionalAttempt
         ) {
-            roll -= WATER_PATCH_MAX_SIZE - size + 1;
-
-            if (roll < 0) {
-                return size;
-            }
+            attempts++;
         }
 
-        return WATER_PATCH_MAX_SIZE;
+        return attempts;
+    }
+
+    private static int chooseWaterPatchSize(
+        Random random,
+        EvictSettings.WaterSettings water
+    ) {
+        return random.nextDouble() * 100d < water.largePatchChancePercent()
+            ? water.largePatchTiles()
+            : water.normalPatchTiles();
+    }
+
+    private static int waterPatchLocalRadius(int targetSize) {
+        return Math.max(
+            1,
+            (int)Math.ceil(Math.sqrt(targetSize / Math.PI))
+                + WATER_PATCH_LOCAL_RADIUS_PADDING
+        );
     }
 
     private static void generateTarPatches(

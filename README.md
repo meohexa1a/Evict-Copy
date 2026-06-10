@@ -19,7 +19,7 @@ A server-side Mindustry plugin for Evict-style persistent PvP on a procedurally 
 - Timed Extinction late game with collapsing outer rings and a center-core final phase
 - Async SQLite player data storage for profiles, playtime and FFA results
 - Automatic random-seed round resets
-- Persistent tuning for attrition, walls, ore generation and Extinction terrain streaming
+- Persistent tuning for attrition, walls, ore/water generation and Extinction terrain streaming
 
 ## Player Commands
 
@@ -74,6 +74,18 @@ evicttitanium [scale] [threshold] [octaves] [falloff]
 evictthorium [scale] [threshold] [octaves] [falloff]
 evictscrap [scale] [threshold] [octaves] [falloff]
 ```
+
+Water patches can be adjusted from the server console:
+
+```text
+evictwater [patches-per-hex-percent] [normal-patch-tiles] [large-patch-percent] [large-patch-tiles]
+```
+
+`patches-per-hex-percent` is the water amount knob: `100` is the default/current
+amount, `50` is about half, and `200` is about double. `normal-patch-tiles` is
+the usual puddle size. `large-patch-percent` is the chance that any one puddle
+becomes large, and `large-patch-tiles` is that larger size. Default is
+`evictwater 100 3 13.33 8`.
 
 ## Installation
 

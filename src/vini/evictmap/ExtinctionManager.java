@@ -1,6 +1,5 @@
 package vini.evictmap;
 
-import arc.util.Time;
 import mindustry.game.Team;
 import mindustry.gen.Call;
 
@@ -12,7 +11,7 @@ import java.util.List;
 /**
  * Crown-on-the-hill late-game event.
  *
- * The clock starts after the first personal team claims a starting core.
+ * The clock starts immediately when the generated round starts.
  *
  * Timeline:
  * - 01:20:00: first warning; /over becomes unavailable
@@ -42,6 +41,7 @@ final class ExtinctionManager {
     private final TeamManager teamManager;
 
     private float elapsedTicks = 0f;
+    private float forcedTimelineOffsetTicks = 0f;
     private float nextRingCollapseTicks = Float.POSITIVE_INFINITY;
     private float nextHexCollapseTicks = Float.POSITIVE_INFINITY;
     private float finalPhaseEndTicks = Float.POSITIVE_INFINITY;
@@ -65,6 +65,7 @@ final class ExtinctionManager {
 
     void beginRound() {
         elapsedTicks = 0f;
+        forcedTimelineOffsetTicks = 0f;
         nextRingCollapseTicks = Float.POSITIVE_INFINITY;
         nextHexCollapseTicks = Float.POSITIVE_INFINITY;
         finalPhaseEndTicks = Float.POSITIVE_INFINITY;
@@ -84,14 +85,11 @@ final class ExtinctionManager {
     }
 
     void update() {
-        if (
-            !teamManager.isRoundActiveForSystems()
-                || !teamManager.isRoundActivated()
-        ) {
+        if (!teamManager.isRoundActiveForSystems()) {
             return;
         }
 
-        elapsedTicks += Time.delta;
+        elapsedTicks = currentTimelineTicks();
 
         if (
             !warningTenMinutesSent
@@ -173,7 +171,6 @@ final class ExtinctionManager {
     boolean forceStart() {
         if (
             !teamManager.isRoundActiveForSystems()
-                || !teamManager.isRoundActivated()
                 || extinctionStarted
         ) {
             return false;
@@ -186,7 +183,11 @@ final class ExtinctionManager {
         warningTenMinutesSent = true;
         warningFiveMinutesSent = true;
         warningOneMinuteSent = true;
-        elapsedTicks = EXTINCTION_START_TICKS;
+        forcedTimelineOffsetTicks = Math.max(
+            forcedTimelineOffsetTicks,
+            EXTINCTION_START_TICKS - baseTimelineTicks()
+        );
+        elapsedTicks = currentTimelineTicks();
 
         startExtinction();
         return true;
@@ -346,5 +347,13 @@ final class ExtinctionManager {
         return team != null
             && team != TeamManager.FALLEN_TEAM
             && team != Team.derelict;
+    }
+
+    private float currentTimelineTicks() {
+        return baseTimelineTicks() + forcedTimelineOffsetTicks;
+    }
+
+    private float baseTimelineTicks() {
+        return teamManager.roundRuntimeMillis() / 1000f * 60f;
     }
 }

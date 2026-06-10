@@ -6,7 +6,7 @@ This repository contains a server-side Mindustry plugin for Evict-style persiste
 
 The plugin is intended for a dedicated Mindustry server. Clients do not install the plugin.
 
-Current stable baseline: `1.2.17`.
+Current stable baseline: `1.2.21`.
 
 ## Workflow Rules
 
@@ -268,12 +268,13 @@ config/evict-players.db
 ```
 
 - Available to every player.
-- Shows how long the current round has been running.
+- Shows how long the current generated round has been running since map start.
 - Shows how long the player has been connected since their first join this round.
 
 ### Extinction
 
 Normal timeline:
+- The timer starts immediately when the generated round starts
 - At `01:20:00`: global 10-minute warning and `/over` disabled
 - At `01:25:00`: global 5-minute warning
 - At `01:29:00`: global 1-minute warning
@@ -355,6 +356,17 @@ evictthorium [scale] [threshold] [octaves] [falloff]
 evictscrap [scale] [threshold] [octaves] [falloff]
 ```
 
+Water settings:
+
+```text
+evictwater [patches-per-hex-percent] [normal-patch-tiles] [large-patch-percent] [large-patch-tiles]
+```
+
+- `100` patches-per-hex-percent is the default/current amount.
+- `normal-patch-tiles` is the usual puddle size.
+- `large-patch-percent` is the chance that one puddle upgrades to the large size.
+- Default: `evictwater 100 3 13.33 8`.
+
 Wall settings:
 - `/wall [full-wall] [small-wall] [open] [passage]`
 
@@ -384,8 +396,10 @@ Current chance structure:
 - No guaranteed water per core hex
 - No per-core water fallback
 - Water patches are random across the map
-- Patch sizes: `1..9`
-- Larger water patches are progressively rarer
+- Most patches use the configured normal tile count.
+- Each patch has a configured percent chance to use the configured large tile count.
+- Console command: `evictwater [patches-per-hex-percent] [normal-patch-tiles] [large-patch-percent] [large-patch-tiles]`
+- Default: `evictwater 100 3 13.33 8`
 
 ## Safety Notes
 

@@ -286,7 +286,7 @@ final class TeamManager {
         );
         leaderUuidByTeamId.put(teamId, uuid);
         personalTeamCreationOrder.add(teamId);
-        roundActivated = true;
+        activateRound();
 
         assignPlayerToTeam(player, personalTeam);
 
@@ -1188,6 +1188,12 @@ final class TeamManager {
         return roundActivated;
     }
 
+    private void activateRound() {
+        if (!roundActivated) {
+            roundActivated = true;
+        }
+    }
+
     void setExtinctionActive(boolean active) {
         extinctionActive = active;
     }
@@ -1526,7 +1532,10 @@ final class TeamManager {
             return 0L;
         }
 
-        return Math.max(0L, System.currentTimeMillis() - roundStartedAtMillis);
+        return Math.max(
+            0L,
+            System.currentTimeMillis() - roundStartedAtMillis
+        );
     }
 
     /**

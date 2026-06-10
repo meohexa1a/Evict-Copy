@@ -204,6 +204,8 @@ final class EvictConsoleCommands {
             }
         );
 
+        registerWaterSettingsCommand(handler);
+
         registerOrePresetCommand(
             handler,
             "evictcopper",
@@ -316,6 +318,55 @@ final class EvictConsoleCommands {
             + " | rankedPlayed=" + info.rankedMatchesPlayed()
             + " | elo=" + info.elo()
             + " | peakElo=" + info.peakElo();
+    }
+
+    private void registerWaterSettingsCommand(CommandHandler handler) {
+        handler.register(
+            "evictwater",
+            "[patches-per-hex-percent] [normal-patch-tiles] [large-patch-percent] [large-patch-tiles]",
+            "Show or persist water patch amount, normal size and large-patch chance for the next generated match.",
+            args -> {
+                if (args.length == 0) {
+                    Log.info(
+                        "[EvictMapGenerator] water: @",
+                        settings.compactWaterSettings()
+                    );
+
+                    return;
+                }
+
+                if (args.length != 4) {
+                    Log.err(
+                        "[EvictMapGenerator] Use: evictwater <patches-per-hex-percent> <normal-patch-tiles> <large-patch-percent> <large-patch-tiles>"
+                    );
+
+                    return;
+                }
+
+                try {
+                    settings.setWaterSettings(
+                        Double.parseDouble(args[0]),
+                        Integer.parseInt(args[1]),
+                        Double.parseDouble(args[2]),
+                        Integer.parseInt(args[3])
+                    );
+
+                    Log.info(
+                        "[EvictMapGenerator] Saved evictwater. Applies to the next generated match: @",
+                        settings.compactWaterSettings()
+                    );
+                } catch (NumberFormatException exception) {
+                    Log.err(
+                        "[EvictMapGenerator] Water percents must be numbers and tile counts must be whole numbers."
+                    );
+                } catch (IllegalArgumentException exception) {
+                    Log.err(
+                        "[EvictMapGenerator] @",
+                        exception.getMessage()
+                    );
+                }
+            }
+        );
     }
 
     private void registerOrePresetCommand(

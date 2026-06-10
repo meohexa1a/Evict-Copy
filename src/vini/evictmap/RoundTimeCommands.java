@@ -14,8 +14,11 @@ final class RoundTimeCommands {
 
     private final Map<String, Long> joinedAtMillisByPlayerUuid =
         new HashMap<>();
+    private final TeamManager teamManager;
 
-    private long roundStartedAtMillis = 0L;
+    RoundTimeCommands(TeamManager teamManager) {
+        this.teamManager = teamManager;
+    }
 
     void registerClientCommands(CommandHandler handler) {
         handler.<Player>register(
@@ -26,7 +29,6 @@ final class RoundTimeCommands {
     }
 
     void beginRound() {
-        roundStartedAtMillis = System.currentTimeMillis();
         joinedAtMillisByPlayerUuid.clear();
         rememberConnectedPlayers();
     }
@@ -68,9 +70,9 @@ final class RoundTimeCommands {
             joinedAtMillisByPlayerUuid.put(player.uuid(), joinedAtMillis);
         }
 
-        String roundTime = roundStartedAtMillis == 0L
+        String roundTime = !teamManager.isRoundActiveForSystems()
             ? "not running"
-            : formatDuration(currentMillis - roundStartedAtMillis);
+            : formatDuration(teamManager.roundRuntimeMillis());
 
         player.sendMessage(
             "[accent]Round time: [white]"

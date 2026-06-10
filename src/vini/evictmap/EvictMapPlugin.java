@@ -61,7 +61,7 @@ public class EvictMapPlugin extends Plugin {
         new RoundEndCommands(teamManager, extinctionManager);
 
     private final RoundTimeCommands roundTimeCommands =
-        new RoundTimeCommands();
+        new RoundTimeCommands(teamManager);
 
     private final EvictHelpCommands helpCommands =
         new EvictHelpCommands();
@@ -165,7 +165,7 @@ public class EvictMapPlugin extends Plugin {
         });
 
         Log.info(
-            "[EvictMapGenerator] Loaded. Code revision 1.2.17. Use 'evictstatus' for commands and current settings."
+            "[EvictMapGenerator] Loaded. Code revision 1.2.21. Use 'evictstatus' for commands and current settings."
         );
     }
 
