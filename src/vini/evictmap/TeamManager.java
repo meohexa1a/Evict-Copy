@@ -569,6 +569,39 @@ final class TeamManager {
         return Team.get(tiedTeamIds.get(0));
     }
 
+    private Team determineSurrenderClaimantTeam(Team defenderTeam) {
+        Map<Integer, Integer> counts =
+            capturesByDefenderTeamId.get(defenderTeam.id);
+
+        if (counts == null || counts.isEmpty()) {
+            return null;
+        }
+
+        int bestCount = Integer.MIN_VALUE;
+        Team bestTeam = null;
+        boolean tied = false;
+
+        for (Map.Entry<Integer, Integer> entry : counts.entrySet()) {
+            Team candidate = Team.get(entry.getKey());
+
+            if (!validClaimant(candidate)) {
+                continue;
+            }
+
+            int count = entry.getValue();
+
+            if (count > bestCount) {
+                bestCount = count;
+                bestTeam = candidate;
+                tied = false;
+            } else if (count == bestCount) {
+                tied = true;
+            }
+        }
+
+        return tied ? null : bestTeam;
+    }
+
     private boolean validClaimant(Team team) {
         return team != null
             && team != FALLEN_TEAM
@@ -700,6 +733,7 @@ final class TeamManager {
         }
 
         String surrenderName = displayTeam(team);
+        Team claimantTeam = determineSurrenderClaimantTeam(team);
 
         /**
          * Logical ownership changes before building destruction so CoreChange
@@ -726,20 +760,21 @@ final class TeamManager {
         List<String> surrenderedPlayerUuids =
             moveTeamPlayersToFallen(
                 team,
-                null,
+                claimantTeam,
                 "[scarlet]Your team surrendered. You are now Fallen.[]"
             );
 
         /**
-         * Surrender has no conqueror. Existing claims held by this team become
-         * free Fallen spectators rather than transferring to another team.
+         * If this team lost cores before surrendering, use core-kill scores
+         * to find a claimant. Surrender has no final-core attacker tie-breaker,
+         * so tied or missing scores leave players as free Fallen spectators.
          */
-        transferExistingClaims(team, null);
+        transferExistingClaims(team, claimantTeam);
 
         if (inviteManager != null) {
             inviteManager.handleTeamEliminated(
                 team,
-                null,
+                claimantTeam,
                 surrenderedPlayerUuids
             );
         }
@@ -751,8 +786,9 @@ final class TeamManager {
         );
 
         Log.info(
-            "[EvictMapGenerator] Surrender: @ gave up. Buildings and units removed.",
-            surrenderName
+            "[EvictMapGenerator] Surrender: @ gave up. Buildings and units removed. claimant=@.",
+            surrenderName,
+            claimantTeam == null ? "none" : displayTeam(claimantTeam)
         );
 
         checkVictory();

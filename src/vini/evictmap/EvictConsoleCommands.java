@@ -323,8 +323,8 @@ final class EvictConsoleCommands {
     private void registerWaterSettingsCommand(CommandHandler handler) {
         handler.register(
             "evictwater",
-            "[patches-per-hex-percent] [normal-patch-tiles] [large-patch-percent] [large-patch-tiles]",
-            "Show or persist water patch amount, normal size and large-patch chance for the next generated match.",
+            "[tries-per-hex] [normal-patch-tiles] [large-patch-percent] [large-patch-tiles]",
+            "Show or persist water patch tries per hex, normal size and large-patch chance for the next generated match.",
             args -> {
                 if (args.length == 0) {
                     Log.info(
@@ -337,7 +337,7 @@ final class EvictConsoleCommands {
 
                 if (args.length != 4) {
                     Log.err(
-                        "[EvictMapGenerator] Use: evictwater <patches-per-hex-percent> <normal-patch-tiles> <large-patch-percent> <large-patch-tiles>"
+                        "[EvictMapGenerator] Use: evictwater <tries-per-hex> <normal-patch-tiles> <large-patch-percent> <large-patch-tiles>"
                     );
 
                     return;
@@ -345,9 +345,9 @@ final class EvictConsoleCommands {
 
                 try {
                     settings.setWaterSettings(
-                        Double.parseDouble(args[0]),
+                        parseDecimal(args[0]),
                         Integer.parseInt(args[1]),
-                        Double.parseDouble(args[2]),
+                        parseDecimal(args[2]),
                         Integer.parseInt(args[3])
                     );
 
@@ -357,7 +357,7 @@ final class EvictConsoleCommands {
                     );
                 } catch (NumberFormatException exception) {
                     Log.err(
-                        "[EvictMapGenerator] Water percents must be numbers and tile counts must be whole numbers."
+                        "[EvictMapGenerator] Water tries and percents must be numbers; tile counts must be whole numbers."
                     );
                 } catch (IllegalArgumentException exception) {
                     Log.err(
@@ -424,5 +424,9 @@ final class EvictConsoleCommands {
                 }
             }
         );
+    }
+
+    private double parseDecimal(String value) {
+        return Double.parseDouble(value.replace(',', '.'));
     }
 }

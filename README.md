@@ -78,14 +78,17 @@ evictscrap [scale] [threshold] [octaves] [falloff]
 Water patches can be adjusted from the server console:
 
 ```text
-evictwater [patches-per-hex-percent] [normal-patch-tiles] [large-patch-percent] [large-patch-tiles]
+evictwater [tries-per-hex] [normal-patch-tiles] [large-patch-percent] [large-patch-tiles]
 ```
 
-`patches-per-hex-percent` is the water amount knob: `100` is the default/current
-amount, `50` is about half, and `200` is about double. `normal-patch-tiles` is
-the usual puddle size. `large-patch-percent` is the chance that any one puddle
-becomes large, and `large-patch-tiles` is that larger size. Default is
-`evictwater 100 3 13.33 8`.
+`tries-per-hex` is the water amount knob: `1` is the default/current amount.
+Decimal values add a fractional extra try per hex, so `4.3` means 4 guaranteed
+tries and a 30% chance for one more. The console command accepts either `4.3`
+or `4,3`. `normal-patch-tiles` is the usual puddle size. `large-patch-percent`
+is the chance that any one puddle becomes large, and `large-patch-tiles` is that
+larger size. Default is
+`evictwater 1 3 13.33 8`. Water/resource overlap is hard-coded; water tiles may
+also carry ore overlays.
 
 ## Installation
 

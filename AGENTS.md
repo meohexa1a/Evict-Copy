@@ -6,7 +6,7 @@ This repository contains a server-side Mindustry plugin for Evict-style persiste
 
 The plugin is intended for a dedicated Mindustry server. Clients do not install the plugin.
 
-Current stable baseline: `1.2.21`.
+Current stable baseline: `1.2.23`.
 
 ## Workflow Rules
 
@@ -246,7 +246,10 @@ config/evict-players.db
 - Immediately destroys all team buildings and units.
 - Converts all surrendered hexes to Fallen.
 - Restores Fallen Nucleus cores.
-- Releases claims held by the surrendered team.
+- If exactly one active personal team destroyed the most surrendered-team
+  cores, surrendered players and claims held by the surrendered team transfer
+  to that claimant.
+- If there is no unique claimant, releases claims held by the surrendered team.
 
 ### Early Round End
 
@@ -359,13 +362,17 @@ evictscrap [scale] [threshold] [octaves] [falloff]
 Water settings:
 
 ```text
-evictwater [patches-per-hex-percent] [normal-patch-tiles] [large-patch-percent] [large-patch-tiles]
+evictwater [tries-per-hex] [normal-patch-tiles] [large-patch-percent] [large-patch-tiles]
 ```
 
-- `100` patches-per-hex-percent is the default/current amount.
+- `tries-per-hex` is the number of water placement tries in each hex.
+- Decimal tries use a fractional extra try per hex. For example, `4.3`
+  means `4` guaranteed tries and a `30%` chance for one more try.
+- The console command accepts either `4.3` or `4,3`.
+- `1` try per hex is the default/current amount.
 - `normal-patch-tiles` is the usual puddle size.
 - `large-patch-percent` is the chance that one puddle upgrades to the large size.
-- Default: `evictwater 100 3 13.33 8`.
+- Default: `evictwater 1 3 13.33 8`.
 
 Wall settings:
 - `/wall [full-wall] [small-wall] [open] [passage]`
@@ -393,13 +400,18 @@ Current chance structure:
 
 ## Water Generation
 
-- No guaranteed water per core hex
-- No per-core water fallback
-- Water patches are random across the map
+- Water placement uses configured tries per hex, not a per-core fallback.
+- Decimal tries add a chance for one extra try in each hex.
+- Water patches are noise-guided inside each hex.
+- Water can share tiles with ore/resource overlays. This is hard-coded and has
+  no setting.
 - Most patches use the configured normal tile count.
 - Each patch has a configured percent chance to use the configured large tile count.
-- Console command: `evictwater [patches-per-hex-percent] [normal-patch-tiles] [large-patch-percent] [large-patch-tiles]`
-- Default: `evictwater 100 3 13.33 8`
+- Console command: `evictwater [tries-per-hex] [normal-patch-tiles] [large-patch-percent] [large-patch-tiles]`
+- Decimal tries use a fractional extra try per hex. For example, `4.3`
+  means `4` guaranteed tries and a `30%` chance for one more try.
+- The console command accepts either `4.3` or `4,3`.
+- Default: `evictwater 1 3 13.33 8`
 
 ## Safety Notes
 

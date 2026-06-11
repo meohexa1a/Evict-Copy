@@ -23,7 +23,7 @@ import java.util.Set;
  * - resources may overlap visually and form mixed clusters
  *
  * Fairness corrections remain intentionally tiny:
- * - water has no per-hex minimum and may be completely absent from a hex
+ * - water uses configurable placement tries per hex
  * - every normal hex receives at least a few tiles of each ore
  * - missing ores are repaired at local noise maxima, not stamped evenly
  */
@@ -139,17 +139,11 @@ final class ResourceGenerator {
     private static final double RARE_LIQUID_PATCH_CHANCE = 0.10;
 
     /**
-     * Water has no per-hex guarantee anymore.
-     *
-     * The generator still performs roughly one patch attempt per playable
-     * hex, but each attempt chooses a random playable hex. This means some
-     * hexes receive no water while others may receive multiple patches.
-     *
-     * Patch sizes range from 1 to 9 tiles. Larger patches are progressively
-     * rarer because each normal patch has a configurable chance to upgrade
-     * into a larger patch.
+     * Water performs a configurable number of placement tries in every
+     * playable hex. Fractional values add a chance for one extra try per hex.
+     * Larger patches remain progressively rarer because each normal patch has
+     * a configurable chance to upgrade into a larger patch.
      */
-    private static final double DEFAULT_WATER_PATCH_ATTEMPTS_PERCENT = 100d;
     private static final int WATER_PATCH_LOCAL_RADIUS_PADDING = 1;
 
     /**
@@ -198,7 +192,8 @@ final class ResourceGenerator {
         /**
          * Floors first: generate bounded liquid patches rather than
          * unrestricted global blobs. Tar is placed after water and therefore
-         * never overwrites a water tile.
+         * never overwrites a water tile. Ores may later overlay water tiles so
+         * water and resources can coexist without another setting.
          */
         generateWaterPatches(
             seed,
@@ -250,53 +245,51 @@ final class ResourceGenerator {
         }
 
         /**
-         * Keep approximately the previous global patch count without tying one
-         * guaranteed patch to every core. Random center selection permits both
-         * completely dry hexes and naturally wetter hexes.
+         * Each playable hex receives a configured number of placement tries.
+         * Decimal values use a fractional extra try: 4.3 means 4 guaranteed
+         * tries and a 30% chance for one more in that hex.
          */
-        int patchAttempts = waterPatchAttempts(
-            random,
-            centers.size(),
-            water.patchAttemptsPercentPerHex()
-        );
-
-        for (int patch = 0; patch < patchAttempts; patch++) {
-            HexCenter center = centers.get(random.nextInt(centers.size()));
-            TilePoint start = bestLiquidPatchStart(seed, center, WATER_PRESET);
-
-            if (start == null) {
-                continue;
-            }
-
-            int targetSize = chooseWaterPatchSize(random, water);
-            int placed = growFloorPatch(
-                seed,
-                WATER_PRESET,
-                center,
-                start,
-                Blocks.darksandWater,
-                targetSize,
-                waterPatchLocalRadius(targetSize)
+        for (HexCenter center : centers) {
+            int patchAttempts = waterPatchAttemptsForHex(
+                random,
+                water.patchAttemptsPerHex()
             );
 
-            if (placed > 0) {
-                corrections.waterGeneratedPatches++;
+            for (int patch = 0; patch < patchAttempts; patch++) {
+                TilePoint start = bestLiquidPatchStart(
+                    seed,
+                    center,
+                    WATER_PRESET
+                );
+
+                if (start == null) {
+                    continue;
+                }
+
+                int targetSize = chooseWaterPatchSize(random, water);
+                int placed = growFloorPatch(
+                    seed,
+                    WATER_PRESET,
+                    center,
+                    start,
+                    Blocks.darksandWater,
+                    targetSize,
+                    waterPatchLocalRadius(targetSize)
+                );
+
+                if (placed > 0) {
+                    corrections.waterGeneratedPatches++;
+                }
             }
         }
     }
 
-    private static int waterPatchAttempts(
+    private static int waterPatchAttemptsForHex(
         Random random,
-        int centerCount,
-        double patchAttemptsPercentPerHex
+        double patchAttemptsPerHex
     ) {
-        if (patchAttemptsPercentPerHex == DEFAULT_WATER_PATCH_ATTEMPTS_PERCENT) {
-            return centerCount;
-        }
-
-        double exactAttempts = centerCount * patchAttemptsPercentPerHex / 100d;
-        int attempts = (int)Math.floor(exactAttempts);
-        double fractionalAttempt = exactAttempts - attempts;
+        int attempts = (int)Math.floor(patchAttemptsPerHex);
+        double fractionalAttempt = patchAttemptsPerHex - attempts;
 
         if (
             fractionalAttempt > 0d
@@ -464,7 +457,7 @@ final class ResourceGenerator {
                 if (
                     tile == null
                         || tile.block() != Blocks.air
-                        || tile.floor() != Blocks.darksand
+                        || !canCarryOreOverlay(tile)
                         || !insideOreMask(x, y, centers)
                 ) {
                     continue;
@@ -597,7 +590,7 @@ final class ResourceGenerator {
                 if (
                     tile == null
                         || tile.block() != Blocks.air
-                        || tile.floor() != Blocks.darksand
+                        || !canCarryOreOverlay(tile)
                         || !insideGuaranteeOreMaskForCenter(x, y, center)
                         || (!allowOverwrite && tile.overlay() != Blocks.air)
                 ) {
@@ -696,7 +689,7 @@ final class ResourceGenerator {
             if (
                 tile == null
                     || tile.block() != Blocks.air
-                    || tile.floor() != Blocks.darksand
+                    || !canCarryOreOverlay(tile)
                     || !insideGuaranteeOreMaskForCenter(point.x, point.y, center)
             ) {
                 continue;
@@ -762,6 +755,11 @@ final class ResourceGenerator {
 
         return closestDistanceSquared >= ORE_CORE_SAFE_RADIUS_SQUARED
             && closestDistanceSquared <= ORE_MAX_RADIUS_SQUARED;
+    }
+
+    private static boolean canCarryOreOverlay(Tile tile) {
+        return tile.floor() == Blocks.darksand
+            || tile.floor() == Blocks.darksandWater;
     }
 
     private static boolean insideLiquidMask(

@@ -55,7 +55,7 @@ final class EvictSettings {
     }
 
     record WaterSettings(
-        double patchAttemptsPercentPerHex,
+        double patchAttemptsPerHex,
         int normalPatchTiles,
         double largePatchChancePercent,
         int largePatchTiles
@@ -67,12 +67,12 @@ final class EvictSettings {
     private static final int DEFAULT_EXTINCTION_TERRAIN_CHANGES_PER_TICK = 120;
     private static final int MIN_EXTINCTION_TERRAIN_CHANGES_PER_TICK = 1;
     private static final int MAX_EXTINCTION_TERRAIN_CHANGES_PER_TICK = 4096;
-    private static final double DEFAULT_WATER_PATCH_ATTEMPTS_PERCENT = 100d;
+    private static final double DEFAULT_WATER_PATCH_ATTEMPTS_PER_HEX = 1d;
     private static final int DEFAULT_WATER_NORMAL_PATCH_TILES = 3;
     private static final double DEFAULT_WATER_LARGE_PATCH_CHANCE_PERCENT =
         13.33d;
     private static final int DEFAULT_WATER_LARGE_PATCH_TILES = 8;
-    private static final double MAX_WATER_PATCH_ATTEMPTS_PERCENT = 500d;
+    private static final double MAX_WATER_PATCH_ATTEMPTS_PER_HEX = 5d;
     private static final int MIN_WATER_PATCH_TILES = 1;
     private static final int MAX_WATER_PATCH_TILES = 64;
 
@@ -93,7 +93,7 @@ final class EvictSettings {
         DEFAULT_EXTINCTION_TERRAIN_CHANGES_PER_TICK;
     private WaterSettings waterSettings =
         new WaterSettings(
-            DEFAULT_WATER_PATCH_ATTEMPTS_PERCENT,
+            DEFAULT_WATER_PATCH_ATTEMPTS_PER_HEX,
             DEFAULT_WATER_NORMAL_PATCH_TILES,
             DEFAULT_WATER_LARGE_PATCH_CHANCE_PERCENT,
             DEFAULT_WATER_LARGE_PATCH_TILES
@@ -203,12 +203,8 @@ final class EvictSettings {
             setWaterSettingsWithoutSaving(
                 readDouble(
                     properties,
-                    "water.patchAttemptsPercentPerHex",
-                    readDouble(
-                        properties,
-                        "water.patchAttemptsPercent",
-                        waterSettings.patchAttemptsPercentPerHex()
-                    )
+                    "water.patchAttemptsPerHex",
+                    legacyWaterPatchAttemptsPerHex(properties)
                 ),
                 readInt(
                     properties,
@@ -310,13 +306,13 @@ final class EvictSettings {
     }
 
     void setWaterSettings(
-        double patchAttemptsPercentPerHex,
+        double patchAttemptsPerHex,
         int normalPatchTiles,
         double largePatchChancePercent,
         int largePatchTiles
     ) {
         setWaterSettingsWithoutSaving(
-            patchAttemptsPercentPerHex,
+            patchAttemptsPerHex,
             normalPatchTiles,
             largePatchChancePercent,
             largePatchTiles
@@ -407,9 +403,9 @@ final class EvictSettings {
     }
 
     String compactWaterSettings() {
-        return "patch-attempts-per-hex="
-            + formatPercent(waterSettings.patchAttemptsPercentPerHex())
-            + "%, normal="
+        return "tries-per-hex="
+            + formatNumber(waterSettings.patchAttemptsPerHex())
+            + ", normal="
             + waterSettings.normalPatchTiles()
             + " tiles, large="
             + formatPercent(waterSettings.largePatchChancePercent())
@@ -504,16 +500,16 @@ final class EvictSettings {
     }
 
     private void setWaterSettingsWithoutSaving(
-        double patchAttemptsPercentPerHex,
+        double patchAttemptsPerHex,
         int normalPatchTiles,
         double largePatchChancePercent,
         int largePatchTiles
     ) {
-        patchAttemptsPercentPerHex = validateRange(
-            "Water patch attempts per hex",
-            patchAttemptsPercentPerHex,
+        patchAttemptsPerHex = validateRange(
+            "Water patch tries per hex",
+            patchAttemptsPerHex,
             0d,
-            MAX_WATER_PATCH_ATTEMPTS_PERCENT
+            MAX_WATER_PATCH_ATTEMPTS_PER_HEX
         );
         normalPatchTiles = validateIntRange(
             "Water normal patch tiles",
@@ -533,7 +529,7 @@ final class EvictSettings {
         );
 
         waterSettings = new WaterSettings(
-            patchAttemptsPercentPerHex,
+            patchAttemptsPerHex,
             normalPatchTiles,
             largePatchChancePercent,
             largePatchTiles
@@ -652,6 +648,22 @@ final class EvictSettings {
         return Integer.parseInt(value.trim());
     }
 
+    private double legacyWaterPatchAttemptsPerHex(Properties properties) {
+        String legacyPercent = properties.getProperty(
+            "water.patchAttemptsPercentPerHex"
+        );
+
+        if (legacyPercent == null || legacyPercent.isBlank()) {
+            legacyPercent = properties.getProperty("water.patchAttemptsPercent");
+        }
+
+        if (legacyPercent == null || legacyPercent.isBlank()) {
+            return waterSettings.patchAttemptsPerHex();
+        }
+
+        return Double.parseDouble(legacyPercent.trim()) / 100d;
+    }
+
     private double legacyLargePatchChancePercent(Properties properties) {
         String largeValue = properties.getProperty("water.largePatchWeight");
 
@@ -728,8 +740,8 @@ final class EvictSettings {
             Integer.toString(extinctionTerrainChangesPerTick)
         );
         properties.setProperty(
-            "water.patchAttemptsPercentPerHex",
-            Double.toString(waterSettings.patchAttemptsPercentPerHex())
+            "water.patchAttemptsPerHex",
+            Double.toString(waterSettings.patchAttemptsPerHex())
         );
         properties.setProperty(
             "water.normalPatchTiles",
