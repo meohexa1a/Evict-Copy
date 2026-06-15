@@ -575,7 +575,7 @@ final class TeamManager {
             capturesByDefenderTeamId.get(defenderTeam.id);
 
         if (counts == null || counts.isEmpty()) {
-            return null;
+            return determineGeneralSurrenderClaimantTeam(defenderTeam);
         }
 
         int bestCount = Integer.MIN_VALUE;
@@ -601,6 +601,50 @@ final class TeamManager {
         }
 
         return tied ? null : bestTeam;
+    }
+
+    private Team determineGeneralSurrenderClaimantTeam(Team surrenderingTeam) {
+        int bestCount = 0;
+        Team bestTeam = null;
+        boolean tied = false;
+
+        for (int teamId : personalTeamCreationOrder) {
+            if (surrenderingTeam != null && teamId == surrenderingTeam.id) {
+                continue;
+            }
+
+            Team candidate = Team.get(teamId);
+
+            if (!validClaimant(candidate)) {
+                continue;
+            }
+
+            int count = nonFallenCoreKills(teamId);
+
+            if (count <= 0) {
+                continue;
+            }
+
+            if (count > bestCount) {
+                bestCount = count;
+                bestTeam = candidate;
+                tied = false;
+            } else if (count == bestCount) {
+                tied = true;
+            }
+        }
+
+        return tied ? null : bestTeam;
+    }
+
+    private int nonFallenCoreKills(int teamId) {
+        int count = 0;
+
+        for (Map<Integer, Integer> counts : capturesByDefenderTeamId.values()) {
+            count += counts.getOrDefault(teamId, 0);
+        }
+
+        return count;
     }
 
     private boolean validClaimant(Team team) {
@@ -804,11 +848,19 @@ final class TeamManager {
             );
         }
 
-        Call.sendMessage(
+        String surrenderMessage =
             "[scarlet]"
                 + surrenderName
-                + "[] has surrendered."
-        );
+                + "[] has surrendered.";
+
+        if (claimantTeam != null) {
+            surrenderMessage +=
+                " [lightgray]Their players were claimed by []"
+                    + displayTeam(claimantTeam)
+                    + "[lightgray].[]";
+        }
+
+        Call.sendMessage(surrenderMessage);
 
         Log.info(
             "[EvictMapGenerator] Surrender: @ gave up. Buildings and units removed. claimant=@.",
@@ -1162,7 +1214,10 @@ final class TeamManager {
         List<String> playerNames = new ArrayList<>();
 
         for (int teamId : personalTeamCreationOrder) {
-            if (!isActivePersonalTeam(teamId)) {
+            if (
+                !isActivePersonalTeam(teamId)
+                    || nonFallenCoreKills(teamId) <= 0
+            ) {
                 continue;
             }
 
