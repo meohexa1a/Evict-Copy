@@ -38,7 +38,9 @@ public class EvictMapPlugin extends Plugin {
         new PlayerDataManager();
 
     private final TeamManager teamManager =
-        new TeamManager(this::handleRoundVictory);
+        new TeamManager(this::handleVictory);
+
+    private final DuelWorker duelWorkerReferee = new DuelWorker();
 
     private final AttritionManager attritionManager =
         new AttritionManager(teamManager, settings);
@@ -152,6 +154,8 @@ public class EvictMapPlugin extends Plugin {
             scheduleConnectedPlayerAssignmentScan();
 
             if (duelWorker) {
+                duelWorkerReferee.begin();
+
                 // No redirected players arrived in time: shut down and free it.
                 Time.run(
                     DUEL_WORKER_STARTUP_GRACE_TICKS,
@@ -169,6 +173,7 @@ public class EvictMapPlugin extends Plugin {
             roundTimeCommands.handlePlayerJoin(event.player);
             teamManager.handlePlayerJoin(event.player);
             playerDataManager.recordConnectedFfaParticipants(teamManager);
+            duelWorkerReferee.handlePlayerJoin(event.player);
         });
 
         Events.on(PlayerLeave.class, event -> {
@@ -287,6 +292,19 @@ public class EvictMapPlugin extends Plugin {
                 }
             }
         );
+    }
+
+    /**
+     * Routes a victory to the duel referee on a worker, or to the normal
+     * next-round reset on the hub.
+     */
+    private void handleVictory(Team winner) {
+        if (duelWorker) {
+            duelWorkerReferee.handleVictory(winner);
+            return;
+        }
+
+        handleRoundVictory(winner);
     }
 
     private void handleRoundVictory(Team winner) {

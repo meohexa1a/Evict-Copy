@@ -7,8 +7,11 @@ import mindustry.gen.Groups;
 import mindustry.gen.Player;
 
 import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
+import java.util.Properties;
 import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
@@ -123,11 +126,16 @@ final class DuelServerManager {
         try {
             File workerDir = provisionWorkerDir(handle.port);
 
+            writeHandshake(workerDir, challengerUuid, opponentUuid);
+
             Process process = launchWorker(workerDir, handle.port);
             handle.process = process;
 
             process.onExit().thenRun(
-                () -> Core.app.post(() -> releaseSlot(handle))
+                () -> Core.app.post(() -> {
+                    logResult(handle.port);
+                    releaseSlot(handle);
+                })
             );
 
             boolean ready = waitUntilReady(handle.port);
@@ -231,8 +239,7 @@ final class DuelServerManager {
     }
 
     private File provisionWorkerDir(int port) throws IOException {
-        File baseDir = new File(WORKER_BASE_DIR);
-        File workerDir = new File(baseDir, WORKER_DIR_PREFIX + port);
+        File workerDir = workerDir(port);
         File jar = new File(workerDir, settings.duelWorkerJarName());
 
         if (jar.exists()) {
@@ -252,6 +259,71 @@ final class DuelServerManager {
         copyDirectory(new File("config/maps"), new File(workerConfig, "maps"));
 
         return workerDir;
+    }
+
+    private void writeHandshake(
+        File workerDir,
+        String player1Uuid,
+        String player2Uuid
+    ) throws IOException {
+        Properties properties = new Properties();
+        properties.setProperty("player1.uuid", player1Uuid);
+        properties.setProperty("player2.uuid", player2Uuid);
+        properties.setProperty("hub.ip", settings.duelServerIp());
+        properties.setProperty("hub.port", Integer.toString(hubPort()));
+
+        try (FileOutputStream output =
+                 new FileOutputStream(new File(workerDir, "duel.properties"))) {
+            properties.store(output, "Evict duel handshake");
+        }
+    }
+
+    /**
+     * Address clients use to reach the hub itself, so a worker can send players
+     * back. Same IP as the workers (one machine); the port is the hub's own
+     * host port from settings, defaulting to the Mindustry default.
+     */
+    private int hubPort() {
+        if (Core.settings == null) {
+            return 6567;
+        }
+
+        return Core.settings.getInt("port", 6567);
+    }
+
+    private void logResult(int port) {
+        File resultFile = new File(workerDir(port), "result.properties");
+
+        if (!resultFile.exists()) {
+            return;
+        }
+
+        Properties properties = new Properties();
+
+        try (FileInputStream input = new FileInputStream(resultFile)) {
+            properties.load(input);
+
+            Log.info(
+                "[EvictMapGenerator] 1v1 result on port @: winner=@ loser=@ reason=@.",
+                port,
+                properties.getProperty("winner.uuid", "?"),
+                properties.getProperty("loser.uuid", "?"),
+                properties.getProperty("reason", "?")
+            );
+        } catch (Exception exception) {
+            Log.err(
+                "[EvictMapGenerator] Could not read the duel result on port "
+                    + port + ".",
+                exception
+            );
+        }
+
+        // Drop it so a reused worker folder never reports a stale result.
+        resultFile.delete();
+    }
+
+    private File workerDir(int port) {
+        return new File(new File(WORKER_BASE_DIR), WORKER_DIR_PREFIX + port);
     }
 
     private Process launchWorker(File workerDir, int port) throws IOException {
