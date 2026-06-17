@@ -63,6 +63,9 @@ public class EvictMapPlugin extends Plugin {
     private final RoundTimeCommands roundTimeCommands =
         new RoundTimeCommands(teamManager);
 
+    private final DuelCommands duelCommands =
+        new DuelCommands(settings);
+
     private final EvictHelpCommands helpCommands =
         new EvictHelpCommands();
 
@@ -72,6 +75,7 @@ public class EvictMapPlugin extends Plugin {
             inviteManager,
             roundEndCommands,
             roundTimeCommands,
+            duelCommands,
             helpCommands
         );
 
@@ -147,6 +151,7 @@ public class EvictMapPlugin extends Plugin {
         Events.on(PlayerLeave.class, event -> {
             playerDataManager.handlePlayerLeave(event.player);
             inviteManager.handlePlayerLeave(event.player);
+            duelCommands.handlePlayerLeave(event.player);
         });
 
         Events.on(

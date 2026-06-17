@@ -147,6 +147,11 @@ final class EvictConsoleCommands {
                     teamManager.extinctionTerrainChangesPerTick()
                 );
 
+                Log.info(
+                    "[EvictMapGenerator] duel server: @",
+                    settings.compactDuelServerSettings()
+                );
+
                 terrain.logStatus();
             }
         );
@@ -256,6 +261,45 @@ final class EvictConsoleCommands {
             "[name/uuid]",
             "Search stored player data by partial name or UUID. With no argument, list all stored players.",
             args -> showStoredPlayerInfo(String.join(" ", args).trim())
+        );
+
+        handler.register(
+            "evictduelserver",
+            "[ip] [port]",
+            "Show or set the dedicated 1v1 server that /play sends players to. With no argument, show the current value.",
+            args -> {
+                if (args.length == 0) {
+                    Log.info(
+                        "[EvictMapGenerator] Duel server: @",
+                        settings.compactDuelServerSettings()
+                    );
+                    return;
+                }
+
+                if (args.length != 2) {
+                    Log.err(
+                        "[EvictMapGenerator] Use: evictduelserver <ip> <port>"
+                    );
+                    return;
+                }
+
+                try {
+                    int port = Integer.parseInt(args[1]);
+
+                    settings.setDuelServer(args[0], port);
+
+                    Log.info(
+                        "[EvictMapGenerator] Duel server saved as @. This applies immediately and after restart.",
+                        settings.compactDuelServerSettings()
+                    );
+                } catch (NumberFormatException exception) {
+                    Log.err(
+                        "[EvictMapGenerator] Port must be a whole number."
+                    );
+                } catch (IllegalArgumentException exception) {
+                    Log.err("[EvictMapGenerator] @", exception.getMessage());
+                }
+            }
         );
     }
 

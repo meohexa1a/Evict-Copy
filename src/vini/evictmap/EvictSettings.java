@@ -75,6 +75,9 @@ final class EvictSettings {
     private static final double MAX_WATER_PATCH_ATTEMPTS_PER_HEX = 5d;
     private static final int MIN_WATER_PATCH_TILES = 1;
     private static final int MAX_WATER_PATCH_TILES = 64;
+    private static final int DEFAULT_DUEL_SERVER_PORT = 6568;
+    private static final int MIN_PORT = 1;
+    private static final int MAX_PORT = 65535;
 
     /**
      * Capture attrition keeps the tier-based percentages.
@@ -91,6 +94,14 @@ final class EvictSettings {
     private double passagePercent = 25d;
     private int extinctionTerrainChangesPerTick =
         DEFAULT_EXTINCTION_TERRAIN_CHANGES_PER_TICK;
+
+    /**
+     * Dedicated 1v1 server that /play redirects to. A blank IP means the duel
+     * feature is not configured yet, so /play stays inert instead of sending
+     * players nowhere.
+     */
+    private String duelServerIp = "";
+    private int duelServerPort = DEFAULT_DUEL_SERVER_PORT;
     private WaterSettings waterSettings =
         new WaterSettings(
             DEFAULT_WATER_PATCH_ATTEMPTS_PER_HEX,
@@ -251,6 +262,11 @@ final class EvictSettings {
                 );
             }
 
+            setDuelServerWithoutSaving(
+                readString(properties, "duel.server.ip", duelServerIp),
+                readInt(properties, "duel.server.port", duelServerPort)
+            );
+
             // Backfill newly introduced properties after plugin upgrades.
             save();
 
@@ -303,6 +319,39 @@ final class EvictSettings {
     void setExtinctionTerrainChangesPerTick(int amount) {
         setExtinctionTerrainChangesPerTickWithoutSaving(amount);
         save();
+    }
+
+    void setDuelServer(String ip, int port) {
+        setDuelServerWithoutSaving(ip, port);
+        save();
+    }
+
+    String duelServerIp() {
+        return duelServerIp;
+    }
+
+    int duelServerPort() {
+        return duelServerPort;
+    }
+
+    boolean duelServerConfigured() {
+        return duelServerIp != null && !duelServerIp.isBlank();
+    }
+
+    String compactDuelServerSettings() {
+        return duelServerConfigured()
+            ? duelServerIp + ":" + duelServerPort
+            : "not set";
+    }
+
+    private void setDuelServerWithoutSaving(String ip, int port) {
+        duelServerIp = ip == null ? "" : ip.trim();
+        duelServerPort = validateIntRange(
+            "Duel server port",
+            port,
+            MIN_PORT,
+            MAX_PORT
+        );
     }
 
     void setWaterSettings(
@@ -648,6 +697,16 @@ final class EvictSettings {
         return Integer.parseInt(value.trim());
     }
 
+    private String readString(
+        Properties properties,
+        String key,
+        String fallback
+    ) {
+        String value = properties.getProperty(key);
+
+        return value == null ? fallback : value.trim();
+    }
+
     private double legacyWaterPatchAttemptsPerHex(Properties properties) {
         String legacyPercent = properties.getProperty(
             "water.patchAttemptsPercentPerHex"
@@ -738,6 +797,14 @@ final class EvictSettings {
         properties.setProperty(
             "extinction.terrainChangesPerTick",
             Integer.toString(extinctionTerrainChangesPerTick)
+        );
+        properties.setProperty(
+            "duel.server.ip",
+            duelServerIp == null ? "" : duelServerIp
+        );
+        properties.setProperty(
+            "duel.server.port",
+            Integer.toString(duelServerPort)
         );
         properties.setProperty(
             "water.patchAttemptsPerHex",

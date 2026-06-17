@@ -6,7 +6,7 @@ This repository contains a server-side Mindustry plugin for Evict-style persiste
 
 The plugin is intended for a dedicated Mindustry server. Clients do not install the plugin.
 
-Current stable baseline: `1.2.28`.
+Current stable baseline: `1.2.7`.
 
 ## Workflow Rules
 
@@ -85,17 +85,6 @@ gradle jar
 - Capture attrition
 - Range attrition
 
-`PlayerDataManager.java`
-- Async SQLite player data writes
-- Player profile rows
-- FFA played/won counters
-- Total and FFA playtime counters
-- Reserved ranked/ELO columns
-
-`CoreUnitDamageManager.java`
-- Disables Alpha/Beta/Gamma core-unit combat damage
-- Leaves core-unit building and mining intact
-
 `InviteManager.java`
 - Join requests
 - Claimed players
@@ -114,16 +103,11 @@ gradle jar
 
 `EvictCommands.java`
 - `/fullassault`
-- `/info`
 - Admin dev commands
 
 `RoundEndCommands.java`
 - `/die`
 - `/over`
-
-`RoundTimeCommands.java`
-- `/time`
-- Round runtime and player first-join runtime
 
 `EvictHelpCommands.java`
 - Filtered `/help`
@@ -134,13 +118,12 @@ gradle jar
 
 `EvictConsoleCommands.java`
 - Dedicated-server console commands
-- Stored player-data lookup
 
 ## Important Gameplay Rules
 
 ### Teams
 
-- Fallen team is always team `#14`.
+- Fallen team is always team `#18`.
 - New players receive a personal team and one protected starting hex.
 - Eliminated players become Fallen.
 - Fallen players can still use chat and move their camera.
@@ -154,8 +137,6 @@ gradle jar
 - Buildings created during those `5 seconds` are deleted again immediately before replacement.
 - Captured cores become Core Shards.
 - `/die` surrender restores Fallen Nucleus cores in surrendered hexes.
-- Replacement cores are verified after placement; an unverified or missing core does not count as owned and cannot block victory as a phantom core.
-- Victory, elimination and `/over` core counts use actual existing core blocks, while pending captures still count immediately for their pending owner.
 
 ### Attrition
 
@@ -181,29 +162,8 @@ Range attrition:
 ```
 
 Core-spawned player units do not receive attrition.
-Core units can build and mine, but do not deal combat damage to buildings or units.
-Building-fired bullets deal `10%` damage to buildings while keeping normal damage against units.
 
 Both values persist across full server restarts.
-
-### Player Data
-
-Persistent player data is stored in:
-
-```text
-config/evict-players.db
-```
-
-- Database writes run asynchronously on one background writer thread.
-- Profiles are keyed by player UUID.
-- Stored values include last name, first seen, last seen, total playtime, FFA playtime, FFA played and FFA won.
-- All observed names are stored per UUID in `player_names`.
-- Ranked playtime, ranked wins, ranked losses, ranked matches played, ELO and peak ELO columns exist for later ranked/1v1 features.
-- FFA playtime is counted only after a player receives a personal team in that round.
-- No IP addresses are stored.
-- `/info` is admin-only and opens a clickable online-player selection menu with two players per row and a bottom cancel button.
-- `/info [name] [team] [#number]` is admin-only and searches online players by partial name. The optional team ID filters duplicate online names; `#number` selects one result from the duplicate list.
-- Console command `evictplayerinfo [name/uuid]` searches stored database rows by partial latest name first. Old names and UUIDs are searched only if no latest-name match exists.
 
 ### Full Assault
 
@@ -238,20 +198,11 @@ config/evict-players.db
 ```
 
 - Leader only.
-- Available only after the round has run for `10 minutes`.
-- Before `10 minutes`, `/die` must not show a countdown.
-- At `10 minutes`, a global status message lists active match player names
-  only, but must not show team/core counts or say `/die` is available.
-- Live player names in chat/menu features should use the player's first
-  `[#xxxxxx]` name color when present; otherwise use their team color.
 - No confirmation required.
 - Immediately destroys all team buildings and units.
 - Converts all surrendered hexes to Fallen.
 - Restores Fallen Nucleus cores.
-- If exactly one active personal team destroyed the most surrendered-team
-  cores, surrendered players and claims held by the surrendered team transfer
-  to that claimant.
-- If there is no unique claimant, releases claims held by the surrendered team.
+- Releases claims held by the surrendered team.
 
 ### Early Round End
 
@@ -266,35 +217,23 @@ config/evict-players.db
 - Teams that expanded beyond one core must be fully eliminated.
 - Disabled once the 10-minute Extinction warning begins.
 
-### Time
-
-```text
-/time
-```
-
-- Available to every player.
-- Shows how long the current generated round has been running since map start.
-- Shows how long the player has been connected since their first join this round; connected players are remembered during repeated startup scans, and if the join record is still missing it falls back to round start instead of first `/time` use.
-
 ### Extinction
 
 Normal timeline:
-- The timer starts immediately when the generated round starts
 - At `01:20:00`: global 10-minute warning and `/over` disabled
 - At `01:25:00`: global 5-minute warning
 - At `01:29:00`: global 1-minute warning
 - At `01:30:00`: Extinction begins
 - Outer rings collapse from farthest to nearest
 - Next ring starts after the prior ring is fully processed and another `90 seconds` pass
-- Within a ring, core/hex collapse has no artificial delay
+- Within a ring, one core/hex collapses every `1 second`
 - Terrain-to-Space conversion is throttled separately
-- If all surviving cores belong to one team during Extinction, that team wins immediately
 
 Final phase:
 - The center hex and its six neighboring hexes are protected from procedural filling
 - When only those `7` hexes remain, a `4-minute` center-core phase begins
-- The team owning the middle core after `4 minutes` wins, including Fallen
-- If the middle core is still Fallen after `4 minutes`, Fallen wins and the round resets normally
+- The team owning the middle core after `4 minutes` wins
+- If the middle core is still Fallen, overtime continues until a personal team captures it
 
 Admin test command:
 
@@ -308,11 +247,11 @@ Terrain streaming console command:
 evictextinctiontiles [amount]
 ```
 
-- Shows or persists Space-floor conversions per tick
-- Default: `120`
+- Shows or sets Space-floor conversions per tick
+- Default: `24`
 - Allowed range: `1..4096`
 - Applies immediately
-- Persists to `config/evict-map-generator.properties`
+- Runtime-only; restart resets it to `24`
 
 ## Help Menu Rules
 
@@ -346,7 +285,6 @@ Current dev commands:
 - `/wall`
 - `/corecap`
 - `/spawnunit`
-- `/info`
 
 ## Persistent Console Settings
 
@@ -360,21 +298,6 @@ evicttitanium [scale] [threshold] [octaves] [falloff]
 evictthorium [scale] [threshold] [octaves] [falloff]
 evictscrap [scale] [threshold] [octaves] [falloff]
 ```
-
-Water settings:
-
-```text
-evictwater [tries-per-hex] [normal-patch-tiles] [large-patch-percent] [large-patch-tiles]
-```
-
-- `tries-per-hex` is the number of water placement tries in each hex.
-- Decimal tries use a fractional extra try per hex. For example, `4.3`
-  means `4` guaranteed tries and a `30%` chance for one more try.
-- The console command accepts either `4.3` or `4,3`.
-- `1` try per hex is the default/current amount.
-- `normal-patch-tiles` is the usual puddle size.
-- `large-patch-percent` is the chance that one puddle upgrades to the large size.
-- Default: `evictwater 1 3 13.33 8`.
 
 Wall settings:
 - `/wall [full-wall] [small-wall] [open] [passage]`
@@ -402,18 +325,11 @@ Current chance structure:
 
 ## Water Generation
 
-- Water placement uses configured tries per hex, not a per-core fallback.
-- Decimal tries add a chance for one extra try in each hex.
-- Water patches are noise-guided inside each hex.
-- Water can share tiles with ore/resource overlays. This is hard-coded and has
-  no setting.
-- Most patches use the configured normal tile count.
-- Each patch has a configured percent chance to use the configured large tile count.
-- Console command: `evictwater [tries-per-hex] [normal-patch-tiles] [large-patch-percent] [large-patch-tiles]`
-- Decimal tries use a fractional extra try per hex. For example, `4.3`
-  means `4` guaranteed tries and a `30%` chance for one more try.
-- The console command accepts either `4.3` or `4,3`.
-- Default: `evictwater 1 3 13.33 8`
+- No guaranteed water per core hex
+- No per-core water fallback
+- Water patches are random across the map
+- Patch sizes: `1..9`
+- Larger water patches are progressively rarer
 
 ## Safety Notes
 
@@ -422,7 +338,9 @@ Current chance structure:
 - Extinction should remove logical ownership, cores, buildings and units immediately, while visual terrain conversion may stream gradually.
 - Do not send thousands of `setFloorNet` packets in one tick.
 - Preserve the double-wipe capture protection.
-
+- Respect Mindustry line-effect limits in unrelated effect work:
+  - maximum `300` lines per packet
+  - maximum `900` lines per `3 seconds`
 
 ## Build Output
 

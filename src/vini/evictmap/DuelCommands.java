@@ -1,0 +1,263 @@
+package vini.evictmap;
+
+import arc.util.CommandHandler;
+import arc.util.Log;
+import mindustry.gen.Call;
+import mindustry.gen.Groups;
+import mindustry.gen.Player;
+import mindustry.ui.Menus;
+
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
+/**
+ * /play (alias /p) 1v1 duel challenges.
+ *
+ * A challenger picks an online opponent from a menu. The opponent receives an
+ * accept/decline menu. On accept both players are redirected to the configured
+ * dedicated 1v1 server instance with {@link Call#connect}.
+ *
+ * This hub server only sends the two players to the duel instance. Map/mode
+ * selection and the match itself live on that separate instance, because a
+ * single Mindustry server process can only host one game at a time.
+ *
+ * The duel target (ip/port) is a persistent server setting, so nothing is
+ * hard-coded and the worker instance can be pointed at whenever it is ready.
+ */
+final class DuelCommands {
+
+    private static final int SELECTION_MENU_COLUMNS = 2;
+    private static final int ACCEPT_OPTION = 0;
+
+    private final EvictSettings settings;
+
+    private final int selectionMenuId;
+    private final int challengeMenuId;
+
+    /** Challenger UUID -> ordered opponent UUIDs shown in their menu. */
+    private final Map<String, List<String>> selectionTargetsByChallengerUuid =
+        new HashMap<>();
+
+    /** Opponent UUID -> challenger UUID for an outstanding challenge. */
+    private final Map<String, String> challengerByOpponentUuid =
+        new HashMap<>();
+
+    DuelCommands(EvictSettings settings) {
+        this.settings = settings;
+        this.selectionMenuId = Menus.registerMenu(this::handleSelection);
+        this.challengeMenuId = Menus.registerMenu(this::handleChallengeResponse);
+    }
+
+    void registerClientCommands(CommandHandler handler) {
+        handler.<Player>register(
+            "play",
+            "Challenge an online player to a 1v1 on the duel server.",
+            (args, player) -> openSelectionMenu(player)
+        );
+
+        handler.<Player>register(
+            "p",
+            "Alias for /play.",
+            (args, player) -> openSelectionMenu(player)
+        );
+    }
+
+    /**
+     * Drops any selection menu or outstanding challenge that involves a player
+     * who just left, so stale UUIDs never accumulate or resolve to a ghost.
+     */
+    void handlePlayerLeave(Player player) {
+        if (player == null) {
+            return;
+        }
+
+        String uuid = player.uuid();
+
+        selectionTargetsByChallengerUuid.remove(uuid);
+        challengerByOpponentUuid.remove(uuid);
+        challengerByOpponentUuid.values().removeIf(uuid::equals);
+    }
+
+    private void openSelectionMenu(Player player) {
+        if (player == null) {
+            return;
+        }
+
+        if (!settings.duelServerConfigured()) {
+            player.sendMessage(
+                "[scarlet]The 1v1 server is not set up yet. Ask an admin.[]"
+            );
+            return;
+        }
+
+        List<Player> opponents = otherOnlinePlayers(player);
+
+        if (opponents.isEmpty()) {
+            player.sendMessage("[scarlet]No other players are online.[]");
+            return;
+        }
+
+        List<String> targetUuids = new ArrayList<>();
+        List<String[]> rows = new ArrayList<>();
+        List<String> currentRow = new ArrayList<>();
+
+        for (Player opponent : opponents) {
+            targetUuids.add(opponent.uuid());
+            currentRow.add(PlayerNameFormatter.displayName(opponent));
+
+            if (currentRow.size() == SELECTION_MENU_COLUMNS) {
+                rows.add(currentRow.toArray(new String[0]));
+                currentRow.clear();
+            }
+        }
+
+        if (!currentRow.isEmpty()) {
+            rows.add(currentRow.toArray(new String[0]));
+        }
+
+        rows.add(new String[] {"[red]Cancel"});
+        selectionTargetsByChallengerUuid.put(player.uuid(), targetUuids);
+
+        Call.menu(
+            player.con,
+            selectionMenuId,
+            "[accent]1v1",
+            "Select a player to challenge to a 1v1.",
+            rows.toArray(new String[0][])
+        );
+    }
+
+    private void handleSelection(Player player, int option) {
+        if (player == null) {
+            return;
+        }
+
+        List<String> targetUuids =
+            selectionTargetsByChallengerUuid.remove(player.uuid());
+
+        if (
+            targetUuids == null
+                || option < 0
+                || option >= targetUuids.size()
+        ) {
+            return;
+        }
+
+        Player opponent = onlinePlayerByUuid(targetUuids.get(option));
+
+        if (opponent == null || opponent == player) {
+            player.sendMessage("[scarlet]That player is no longer online.[]");
+            return;
+        }
+
+        challengerByOpponentUuid.put(opponent.uuid(), player.uuid());
+
+        player.sendMessage(
+            "[accent]Challenge sent to "
+                + PlayerNameFormatter.displayName(opponent)
+                + "[accent].[]"
+        );
+
+        Call.menu(
+            opponent.con,
+            challengeMenuId,
+            "[accent]1v1 Challenge",
+            PlayerNameFormatter.displayName(player)
+                + "[white] has challenged you to a 1v1.",
+            new String[][] {
+                {"[green]Accept"},
+                {"[red]Decline"}
+            }
+        );
+    }
+
+    private void handleChallengeResponse(Player opponent, int option) {
+        if (opponent == null) {
+            return;
+        }
+
+        String challengerUuid =
+            challengerByOpponentUuid.remove(opponent.uuid());
+
+        if (challengerUuid == null) {
+            return;
+        }
+
+        Player challenger = onlinePlayerByUuid(challengerUuid);
+
+        if (challenger == null || challenger == opponent) {
+            opponent.sendMessage(
+                "[scarlet]The challenger is no longer online.[]"
+            );
+            return;
+        }
+
+        if (option != ACCEPT_OPTION) {
+            challenger.sendMessage(
+                "[scarlet]"
+                    + PlayerNameFormatter.displayName(opponent)
+                    + "[scarlet] declined your 1v1.[]"
+            );
+            return;
+        }
+
+        sendToDuelServer(challenger, opponent);
+    }
+
+    private void sendToDuelServer(Player challenger, Player opponent) {
+        String ip = settings.duelServerIp();
+        int port = settings.duelServerPort();
+
+        if (ip == null || ip.isBlank()) {
+            challenger.sendMessage(
+                "[scarlet]The 1v1 server is not set up yet.[]"
+            );
+            opponent.sendMessage(
+                "[scarlet]The 1v1 server is not set up yet.[]"
+            );
+            return;
+        }
+
+        challenger.sendMessage("[accent]Connecting you to your 1v1...[]");
+        opponent.sendMessage("[accent]Connecting you to your 1v1...[]");
+
+        Call.connect(challenger.con, ip, port);
+        Call.connect(opponent.con, ip, port);
+
+        Log.info(
+            "[EvictMapGenerator] 1v1: sending @ and @ to duel server @:@.",
+            challenger.plainName(),
+            opponent.plainName(),
+            ip,
+            port
+        );
+    }
+
+    private List<Player> otherOnlinePlayers(Player self) {
+        List<Player> players = new ArrayList<>();
+
+        Groups.player.each(player -> {
+            if (player != null && player != self) {
+                players.add(player);
+            }
+        });
+
+        players.sort(
+            Comparator.comparing(
+                Player::plainName,
+                String.CASE_INSENSITIVE_ORDER
+            )
+        );
+
+        return players;
+    }
+
+    private Player onlinePlayerByUuid(String uuid) {
+        return Groups.player.find(
+            player -> player != null && player.uuid().equals(uuid)
+        );
+    }
+}
