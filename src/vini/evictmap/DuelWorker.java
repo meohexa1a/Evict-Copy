@@ -1,7 +1,6 @@
 package vini.evictmap;
 
 import arc.Core;
-import arc.util.Align;
 import arc.util.Log;
 import arc.util.Time;
 import mindustry.Vars;
@@ -23,27 +22,30 @@ import java.util.concurrent.TimeUnit;
  * Worker-side 1v1 referee. Only active when launched as a duel worker
  * (-Devict.duelWorker=true); on the hub this class does nothing.
  *
- * Lifecycle of a worker:
  * - reads the hub handshake (the two player UUIDs + hub address),
  * - freezes the match as soon as the first player joins,
- * - once both are present, runs a 5-second on-screen countdown, then unfreezes,
- * - if a player disconnects mid-match, pauses and shows a centred "Xs to rejoin"
+ * - once both are present, runs a 5-second countdown (HUD text), then unfreezes,
+ * - if a player disconnects mid-match, pauses and shows a "Xs to rejoin"
  *   countdown; resumes when they return, or after the window if they do not,
  * - on an Evict victory writes a result file, returns both players to the hub,
- * - shuts the process down once it has sat empty for a grace period.
+ * - shuts down once it has sat empty for a grace period,
+ * - writes status.properties periodically so the hub's evictduelstatus can show
+ *   the live state, game time and connected players.
  *
- * Countdowns and the empty-shutdown run on a real-time executor, because the
- * game is paused during them and logic-timed tasks would stall.
+ * Countdowns, status writes and the empty-shutdown run on a real-time executor,
+ * because the game is paused during them and logic-timed tasks would stall.
  */
 final class DuelWorker {
 
     private static final File HANDSHAKE_FILE = new File("duel.properties");
     private static final File RESULT_FILE = new File("result.properties");
+    private static final File STATUS_FILE = new File("status.properties");
 
     private static final int COUNTDOWN_SECONDS = 5;
     private static final int REJOIN_SECONDS = 60;
     private static final int STARTUP_GRACE_SECONDS = 90;
     private static final int EMPTY_GRACE_SECONDS = 60;
+    private static final int STATUS_INTERVAL_SECONDS = 2;
     private static final float RETURN_DELAY_TICKS = 5f * 60f;
 
     private final boolean active;
@@ -67,6 +69,7 @@ final class DuelWorker {
     private boolean pausedForDisconnect = false;
     private boolean resolved = false;
 
+    private long matchStartMillis = 0L;
     private int disconnectSerial = 0;
     private String disconnectedName = "A player";
 
@@ -86,6 +89,13 @@ final class DuelWorker {
 
         loadHandshake();
         scheduleShutdownIfEmpty(STARTUP_GRACE_SECONDS);
+
+        scheduler.scheduleAtFixedRate(
+            () -> Core.app.post(this::writeStatus),
+            STATUS_INTERVAL_SECONDS,
+            STATUS_INTERVAL_SECONDS,
+            TimeUnit.SECONDS
+        );
     }
 
     void handlePlayerJoin(Player player) {
@@ -117,8 +127,6 @@ final class DuelWorker {
             return;
         }
 
-        // Real-time check: if the worker ends up empty, shut it down so the hub
-        // frees the slot (works even while paused).
         scheduleShutdownIfEmpty(EMPTY_GRACE_SECONDS);
 
         if (
@@ -154,6 +162,8 @@ final class DuelWorker {
             disconnectSerial++;
             resumeGame();
         }
+
+        Call.hideHudText();
 
         Player winnerPlayer = Groups.player.find(
             player -> player != null && player.team() == winner
@@ -227,23 +237,22 @@ final class DuelWorker {
     }
 
     private void showCountdown(int remaining) {
-        Call.infoPopup(
-            "[accent]1v1 starts in [scarlet]" + remaining + "[]",
-            1.1f,
-            Align.center,
-            0,
-            0,
-            0,
-            0
-        );
+        Call.setHudText("[accent]1v1 starts in [scarlet]" + remaining + "[]");
     }
 
     private void startMatch() {
         matchStarted = true;
         startFreezeApplied = false;
+        matchStartMillis = System.currentTimeMillis();
         resumeGame();
-        Call.infoPopup("[green]GO![]", 2f, Align.center, 0, 0, 0, 0);
+        Call.setHudText("[green]GO![]");
         Call.sendMessage("[green]1v1 started. Destroy the enemy core to win![]");
+
+        scheduler.schedule(
+            () -> Core.app.post(Call::hideHudText),
+            2,
+            TimeUnit.SECONDS
+        );
     }
 
     private void beginDisconnectPause(Player player) {
@@ -275,16 +284,10 @@ final class DuelWorker {
             return;
         }
 
-        Call.infoPopup(
+        Call.setHudText(
             "[scarlet]" + disconnectedName
-                + "[scarlet] left — [accent]" + remaining
-                + "s[scarlet] to rejoin, or the match continues[]",
-            1.1f,
-            Align.center,
-            0,
-            0,
-            0,
-            0
+                + "[scarlet] left  -  [accent]" + remaining
+                + "s[scarlet] to rejoin, or the match continues[]"
         );
     }
 
@@ -295,6 +298,7 @@ final class DuelWorker {
 
         pausedForDisconnect = false;
         resumeGame();
+        Call.hideHudText();
         Call.sendMessage(
             "[scarlet]" + disconnectedName
                 + "[scarlet] did not return. The match continues.[]"
@@ -305,6 +309,7 @@ final class DuelWorker {
         pausedForDisconnect = false;
         disconnectSerial++;
         resumeGame();
+        Call.hideHudText();
         Call.sendMessage("[accent]Both players are back. Resuming the 1v1![]");
     }
 
@@ -331,6 +336,58 @@ final class DuelWorker {
     private void resumeGame() {
         Vars.state.set(GameState.State.playing);
         Log.info("[EvictMapGenerator] Duel worker resumed the match.");
+    }
+
+    private void writeStatus() {
+        Properties properties = new Properties();
+        properties.setProperty("state", currentStateName());
+        properties.setProperty(
+            "elapsedSeconds",
+            Long.toString(matchElapsedSeconds())
+        );
+
+        StringBuilder players = new StringBuilder();
+
+        Groups.player.each(player -> {
+            if (player != null) {
+                if (players.length() > 0) {
+                    players.append(",");
+                }
+                players.append(player.plainName()).append("|").append(player.uuid());
+            }
+        });
+
+        properties.setProperty("players", players.toString());
+
+        try (FileOutputStream output = new FileOutputStream(STATUS_FILE)) {
+            properties.store(output, "Evict duel status");
+        } catch (Exception ignored) {
+            // Status is best-effort; a missed write just shows stale data.
+        }
+    }
+
+    private String currentStateName() {
+        if (resolved) {
+            return "finished";
+        }
+
+        if (pausedForDisconnect) {
+            return "paused";
+        }
+
+        if (!matchStarted) {
+            return countdownStarted ? "countdown" : "waiting";
+        }
+
+        return "running";
+    }
+
+    private long matchElapsedSeconds() {
+        if (!matchStarted || matchStartMillis <= 0L) {
+            return 0L;
+        }
+
+        return (System.currentTimeMillis() - matchStartMillis) / 1000L;
     }
 
     private boolean bothPlayersPresent() {

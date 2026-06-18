@@ -278,23 +278,93 @@ final class DuelServerManager {
 
         for (WorkerHandle handle : workers.values()) {
             boolean alive = handle.process != null && handle.process.isAlive();
-            boolean finished =
-                new File(workerDir(handle.port), "result.properties").exists();
-            String state = !alive
-                ? "starting/closed"
-                : finished ? "finished" : "running";
+            String uptime = formatHms((now - handle.spawnedAtMillis) / 1000L);
+            Properties status = readStatus(handle.port);
 
-            Log.info(
-                "[EvictMapGenerator]   port @ [@] uptime=@s : @ (@) vs @ (@)",
-                handle.port,
-                state,
-                (now - handle.spawnedAtMillis) / 1000L,
-                handle.player1Name,
-                handle.player1Uuid,
-                handle.player2Name,
-                handle.player2Uuid
-            );
+            if (alive && status != null) {
+                Log.info(
+                    "[EvictMapGenerator]   port @ [@] uptime=@ game=@ players: @",
+                    handle.port,
+                    status.getProperty("state", "?"),
+                    uptime,
+                    formatHms(parseLong(status.getProperty("elapsedSeconds"))),
+                    formatPlayers(status.getProperty("players", ""))
+                );
+            } else {
+                Log.info(
+                    "[EvictMapGenerator]   port @ [@] uptime=@ players: @ (@) vs @ (@)",
+                    handle.port,
+                    alive ? "starting" : "closing",
+                    uptime,
+                    handle.player1Name,
+                    handle.player1Uuid,
+                    handle.player2Name,
+                    handle.player2Uuid
+                );
+            }
         }
+    }
+
+    private Properties readStatus(int port) {
+        File statusFile = new File(workerDir(port), "status.properties");
+
+        if (!statusFile.exists()) {
+            return null;
+        }
+
+        Properties properties = new Properties();
+
+        try (FileInputStream input = new FileInputStream(statusFile)) {
+            properties.load(input);
+            return properties;
+        } catch (Exception exception) {
+            return null;
+        }
+    }
+
+    private static String formatPlayers(String packed) {
+        if (packed == null || packed.isBlank()) {
+            return "(none connected)";
+        }
+
+        StringBuilder result = new StringBuilder();
+
+        for (String entry : packed.split(",")) {
+            String[] parts = entry.split("\\|", 2);
+
+            if (result.length() > 0) {
+                result.append(", ");
+            }
+
+            result.append(parts[0]);
+
+            if (parts.length > 1) {
+                result.append(" (").append(parts[1]).append(")");
+            }
+        }
+
+        return result.toString();
+    }
+
+    private static long parseLong(String value) {
+        if (value == null || value.isBlank()) {
+            return 0L;
+        }
+
+        try {
+            return Long.parseLong(value.trim());
+        } catch (NumberFormatException exception) {
+            return 0L;
+        }
+    }
+
+    private static String formatHms(long totalSeconds) {
+        long seconds = Math.max(0L, totalSeconds);
+        long hours = seconds / 3600L;
+        long minutes = (seconds % 3600L) / 60L;
+        long secs = seconds % 60L;
+
+        return String.format("%02d:%02d:%02d", hours, minutes, secs);
     }
 
     private void notifyFailure(String challengerUuid, String opponentUuid) {
