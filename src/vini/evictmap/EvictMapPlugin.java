@@ -1,9 +1,12 @@
 package vini.evictmap;
 
 import arc.Events;
+import arc.math.geom.Vec2;
 import arc.util.CommandHandler;
 import arc.util.Log;
 import arc.util.Time;
+import mindustry.game.EventType;
+import mindustry.game.EventType.BlockDestroyEvent;
 import mindustry.game.EventType.CoreChangeEvent;
 import mindustry.game.EventType.GameOverEvent;
 import mindustry.game.EventType.PlayEvent;
@@ -13,6 +16,9 @@ import mindustry.game.EventType.Trigger;
 import mindustry.game.EventType.WorldLoadEvent;
 import mindustry.game.Team;
 import mindustry.mod.Plugin;
+import mindustry.world.blocks.storage.CoreBlock;
+
+import java.util.HashMap;
 
 /**
  * Plugin composition root.
@@ -91,6 +97,10 @@ public class EvictMapPlugin extends Plugin {
     private boolean refreshingWorldIndexes = false;
     private long connectedPlayerScanSerial = 0L;
 
+    // prechanging detector
+    private final HashMap<Integer, CoreBlock.CoreBuild> prechanged =
+            new HashMap<>();
+
     @Override
     public void init() {
         settings.load();
@@ -149,13 +159,27 @@ public class EvictMapPlugin extends Plugin {
             inviteManager.handlePlayerLeave(event.player);
         });
 
-        Events.on(
-            CoreChangeEvent.class,
-            event -> teamManager.handleCoreChange(
-                event.core,
-                attritionManager
-            )
-        );
+//        Events.on(
+//            CoreChangeEvent.class,
+//            event -> teamManager.handleCoreChange(
+//                event.core,
+//                attritionManager
+//            )
+//        );
+
+        Events.on(EventType.TilePreChangeEvent.class, tilePreChangeEvent -> {
+            if (!(tilePreChangeEvent.tile.build instanceof CoreBlock.CoreBuild coreBuild)) return;
+            if (coreBuild.health > 0f) return;
+
+            prechanged.put(tilePreChangeEvent.tile.pos(), coreBuild);
+        });
+
+        Events.on(EventType.TileChangeEvent.class, tileChangeEvent -> {
+            var coreBuild = prechanged.remove(tileChangeEvent.tile.pos());
+            if (coreBuild == null) return;
+
+            teamManager.handleCoreChange(coreBuild, attritionManager);
+        });
 
         Events.run(Trigger.update, () -> {
             teamManager.updateExtinctionTerrainQueue();
