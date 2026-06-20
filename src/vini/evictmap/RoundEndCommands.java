@@ -22,6 +22,14 @@ final class RoundEndCommands {
     private final TeamManager teamManager;
     private final ExtinctionManager extinctionManager;
 
+    /**
+     * On a duel worker `/die` is always available (no leader or opening-period
+     * gate) and `/over` is disabled, because a duel ends only by owning all
+     * cores. Normal Evict keeps both unchanged.
+     */
+    private final boolean duelWorker =
+        "true".equals(System.getProperty("evict.duelWorker"));
+
     RoundEndCommands(
         TeamManager teamManager,
         ExtinctionManager extinctionManager
@@ -64,21 +72,23 @@ final class RoundEndCommands {
             return;
         }
 
-        if (!teamManager.isLeader(player)) {
-            player.sendMessage(
-                "[scarlet]Only your team's original leader can surrender.[]"
-            );
-            return;
-        }
+        if (!duelWorker) {
+            if (!teamManager.isLeader(player)) {
+                player.sendMessage(
+                    "[scarlet]Only your team's original leader can surrender.[]"
+                );
+                return;
+            }
 
-        long remainingMillis =
-            SURRENDER_UNLOCK_DELAY_MILLIS - teamManager.roundRuntimeMillis();
+            long remainingMillis =
+                SURRENDER_UNLOCK_DELAY_MILLIS - teamManager.roundRuntimeMillis();
 
-        if (remainingMillis > 0L) {
-            player.sendMessage(
-                "[scarlet]Your team cannot surrender during the opening 10 minutes.[]"
-            );
-            return;
+            if (remainingMillis > 0L) {
+                player.sendMessage(
+                    "[scarlet]Your team cannot surrender during the opening 10 minutes.[]"
+                );
+                return;
+            }
         }
 
         if (!teamManager.surrenderTeam(player.team())) {
@@ -89,6 +99,13 @@ final class RoundEndCommands {
     }
 
     private void endEarly(String[] args, Player player) {
+        if (duelWorker) {
+            player.sendMessage(
+                "[scarlet]/over is not available in 1v1 duels.[]"
+            );
+            return;
+        }
+
         if (args.length != 0) {
             player.sendMessage("[scarlet]Use: /over[]");
             return;
