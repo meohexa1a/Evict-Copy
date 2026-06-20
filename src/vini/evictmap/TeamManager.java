@@ -580,7 +580,11 @@ final class TeamManager {
             capturesByDefenderTeamId.get(defenderTeam.id);
 
         if (counts == null || counts.isEmpty()) {
-            return determineGeneralSurrenderClaimantTeam(defenderTeam);
+            // No team ever destroyed this team's cores, so no one earned a
+            // claim by attacking them. Surrender leaves the players as free
+            // Fallen spectators instead of handing them to the map-wide
+            // core-kill leader, which could be a team that never reached them.
+            return null;
         }
 
         int bestCount = Integer.MIN_VALUE;
@@ -595,40 +599,6 @@ final class TeamManager {
             }
 
             int count = entry.getValue();
-
-            if (count > bestCount) {
-                bestCount = count;
-                bestTeam = candidate;
-                tied = false;
-            } else if (count == bestCount) {
-                tied = true;
-            }
-        }
-
-        return tied ? null : bestTeam;
-    }
-
-    private Team determineGeneralSurrenderClaimantTeam(Team surrenderingTeam) {
-        int bestCount = 0;
-        Team bestTeam = null;
-        boolean tied = false;
-
-        for (int teamId : personalTeamCreationOrder) {
-            if (surrenderingTeam != null && teamId == surrenderingTeam.id) {
-                continue;
-            }
-
-            Team candidate = Team.get(teamId);
-
-            if (!validClaimant(candidate)) {
-                continue;
-            }
-
-            int count = nonFallenCoreKills(teamId);
-
-            if (count <= 0) {
-                continue;
-            }
 
             if (count > bestCount) {
                 bestCount = count;
