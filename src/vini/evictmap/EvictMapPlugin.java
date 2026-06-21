@@ -1,17 +1,15 @@
 package vini.evictmap;
 
 import arc.Events;
-import arc.math.geom.Vec2;
 import arc.util.CommandHandler;
 import arc.util.Log;
 import arc.util.Time;
-import mindustry.game.EventType;
-import mindustry.game.EventType.BlockDestroyEvent;
-import mindustry.game.EventType.CoreChangeEvent;
 import mindustry.game.EventType.GameOverEvent;
 import mindustry.game.EventType.PlayEvent;
 import mindustry.game.EventType.PlayerJoin;
 import mindustry.game.EventType.PlayerLeave;
+import mindustry.game.EventType.TileChangeEvent;
+import mindustry.game.EventType.TilePreChangeEvent;
 import mindustry.game.EventType.Trigger;
 import mindustry.game.EventType.WorldLoadEvent;
 import mindustry.game.Team;
@@ -43,7 +41,9 @@ public class EvictMapPlugin extends Plugin {
         new PlayerDataManager();
 
     private final TeamManager teamManager =
-        new TeamManager(this::handleRoundVictory);
+        new TeamManager(this::handleVictory);
+
+    private final DuelWorker duelWorkerReferee = new DuelWorker();
 
     private final AttritionManager attritionManager =
         new AttritionManager(teamManager, settings);
@@ -69,6 +69,12 @@ public class EvictMapPlugin extends Plugin {
     private final RoundTimeCommands roundTimeCommands =
         new RoundTimeCommands(teamManager);
 
+    private final DuelServerManager duelServerManager =
+        new DuelServerManager(settings);
+
+    private final DuelCommands duelCommands =
+        new DuelCommands(duelServerManager);
+
     private final EvictHelpCommands helpCommands =
         new EvictHelpCommands();
 
@@ -78,6 +84,7 @@ public class EvictMapPlugin extends Plugin {
             inviteManager,
             roundEndCommands,
             roundTimeCommands,
+            duelCommands,
             helpCommands
         );
 
@@ -91,15 +98,24 @@ public class EvictMapPlugin extends Plugin {
             terrainGenerator,
             teamManager,
             playerDataManager,
+            duelServerManager,
             this::generate
         );
 
     private boolean refreshingWorldIndexes = false;
     private long connectedPlayerScanSerial = 0L;
 
+    /**
+     * When launched with -Devict.duelWorker=true this process is a spawned 1v1
+     * worker. It runs Evict normally but shuts itself down once the match is
+     * empty so the hub can free the slot.
+     */
+    private final boolean duelWorker =
+        "true".equals(System.getProperty("evict.duelWorker"));
+
     // prechanging detector
     private final HashMap<Integer, CoreBlock.CoreBuild> prechanged =
-            new HashMap<>();
+        new HashMap<>();
 
     @Override
     public void init() {
@@ -142,43 +158,57 @@ public class EvictMapPlugin extends Plugin {
             EvictRules.apply();
             scheduleConnectedPlayerAssignmentScan();
 
+            if (duelWorker) {
+                duelWorkerReferee.begin();
+            }
+
             Log.info(
                 "[EvictMapGenerator] Re-applied Evict rules after host-mode initialization."
             );
         });
 
         Events.on(PlayerJoin.class, event -> {
+            // On the hub: a player who is mid-duel is bounced straight back to
+            // their worker instead of being onboarded into the FFA round.
+            if (
+                !duelWorker
+                    && duelServerManager.tryReturnToActiveDuel(event.player)
+            ) {
+                return;
+            }
+
             playerDataManager.handlePlayerJoin(event.player);
             roundTimeCommands.handlePlayerJoin(event.player);
             teamManager.handlePlayerJoin(event.player);
             playerDataManager.recordConnectedFfaParticipants(teamManager);
+            duelWorkerReferee.handlePlayerJoin(event.player);
         });
 
         Events.on(PlayerLeave.class, event -> {
             playerDataManager.handlePlayerLeave(event.player);
             inviteManager.handlePlayerLeave(event.player);
+            duelCommands.handlePlayerLeave(event.player);
+            duelWorkerReferee.handlePlayerLeave(event.player);
         });
 
-//        Events.on(
-//            CoreChangeEvent.class,
-//            event -> teamManager.handleCoreChange(
-//                event.core,
-//                attritionManager
-//            )
-//        );
-
-        Events.on(EventType.TilePreChangeEvent.class, tilePreChangeEvent -> {
-            if (!(tilePreChangeEvent.tile.build instanceof CoreBlock.CoreBuild coreBuild)) return;
-            if (coreBuild.health > 0f) return;
+        Events.on(TilePreChangeEvent.class, tilePreChangeEvent -> {
+            if (!(tilePreChangeEvent.tile.build instanceof CoreBlock.CoreBuild coreBuild)) {
+                return;
+            }
+            if (coreBuild.health > 0f) {
+                return;
+            }
 
             prechanged.put(tilePreChangeEvent.tile.pos(), coreBuild);
         });
 
-        Events.on(EventType.TileChangeEvent.class, tileChangeEvent -> {
-            var coreBuild = prechanged.remove(tileChangeEvent.tile.pos());
-            if (coreBuild == null) return;
+        Events.on(TileChangeEvent.class, tileChangeEvent -> {
+            CoreBlock.CoreBuild coreBuild = prechanged.remove(tileChangeEvent.tile.pos());
+            if (coreBuild == null) {
+                return;
+            }
 
-            teamManager.handleCoreChange(coreBuild, attritionManager);
+            teamManager.coreCapture().handleCoreChange(coreBuild, attritionManager);
         });
 
         Events.run(Trigger.update, () -> {
@@ -278,6 +308,19 @@ public class EvictMapPlugin extends Plugin {
         );
     }
 
+    /**
+     * Routes a victory to the duel referee on a worker, or to the normal
+     * next-round reset on the hub.
+     */
+    private void handleVictory(Team winner) {
+        if (duelWorker) {
+            duelWorkerReferee.handleVictory(winner);
+            return;
+        }
+
+        handleRoundVictory(winner);
+    }
+
     private void handleRoundVictory(Team winner) {
         playerDataManager.recordFfaWinner(teamManager, winner);
         runtime.nextSeed = runtime.randomSeed();
@@ -296,6 +339,7 @@ public class EvictMapPlugin extends Plugin {
         teamManager.assignConnectedPlayers();
         playerDataManager.recordConnectedFfaParticipants(teamManager);
     }
+
 
     private void refreshWorldIndexes() {
         refreshingWorldIndexes = true;

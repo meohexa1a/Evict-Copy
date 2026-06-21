@@ -16,6 +16,7 @@ final class EvictConsoleCommands {
     private final EvictTerrainGenerator terrain;
     private final TeamManager teamManager;
     private final PlayerDataManager playerDataManager;
+    private final DuelServerManager duelServerManager;
     private final LongConsumer generate;
 
     EvictConsoleCommands(
@@ -24,6 +25,7 @@ final class EvictConsoleCommands {
         EvictTerrainGenerator terrain,
         TeamManager teamManager,
         PlayerDataManager playerDataManager,
+        DuelServerManager duelServerManager,
         LongConsumer generate
     ) {
         this.runtime = runtime;
@@ -31,6 +33,7 @@ final class EvictConsoleCommands {
         this.terrain = terrain;
         this.teamManager = teamManager;
         this.playerDataManager = playerDataManager;
+        this.duelServerManager = duelServerManager;
         this.generate = generate;
     }
 
@@ -147,6 +150,11 @@ final class EvictConsoleCommands {
                     teamManager.extinctionTerrainChangesPerTick()
                 );
 
+                Log.info(
+                    "[EvictMapGenerator] duel server: @",
+                    settings.compactDuelServerSettings()
+                );
+
                 terrain.logStatus();
             }
         );
@@ -256,6 +264,52 @@ final class EvictConsoleCommands {
             "[name/uuid]",
             "Search stored player data by partial name or UUID. With no argument, list all stored players.",
             args -> showStoredPlayerInfo(String.join(" ", args).trim())
+        );
+
+        handler.register(
+            "evictduelserver",
+            "[ip] [basePort] [maxWorkers] [map]",
+            "Show or set the on-demand 1v1 worker pool that /play uses. ip is the address clients reach the workers at; basePort is the first worker port; maxWorkers is how many duels may run at once (1-10); map is the map workers host. Omitted values keep their current setting.",
+            args -> {
+                if (args.length == 0) {
+                    Log.info(
+                        "[EvictMapGenerator] Duel server: @",
+                        settings.compactDuelServerSettings()
+                    );
+                    return;
+                }
+
+                try {
+                    int basePort = args.length >= 2
+                        ? Integer.parseInt(args[1])
+                        : settings.duelServerPort();
+                    int maxWorkers = args.length >= 3
+                        ? Integer.parseInt(args[2])
+                        : settings.duelMaxWorkers();
+                    String map = args.length >= 4
+                        ? args[3]
+                        : settings.duelWorkerMap();
+
+                    settings.setDuelServer(args[0], basePort, maxWorkers, map);
+
+                    Log.info(
+                        "[EvictMapGenerator] Duel server saved as @. This applies immediately and after restart.",
+                        settings.compactDuelServerSettings()
+                    );
+                } catch (NumberFormatException exception) {
+                    Log.err(
+                        "[EvictMapGenerator] basePort and maxWorkers must be whole numbers."
+                    );
+                } catch (IllegalArgumentException exception) {
+                    Log.err("[EvictMapGenerator] @", exception.getMessage());
+                }
+            }
+        );
+
+        handler.register(
+            "evictduelstatus",
+            "List the active 1v1 worker servers and who is in them.",
+            args -> duelServerManager.logStatus()
         );
     }
 

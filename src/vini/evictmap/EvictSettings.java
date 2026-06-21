@@ -75,6 +75,14 @@ final class EvictSettings {
     private static final double MAX_WATER_PATCH_ATTEMPTS_PER_HEX = 5d;
     private static final int MIN_WATER_PATCH_TILES = 1;
     private static final int MAX_WATER_PATCH_TILES = 64;
+    private static final int DEFAULT_DUEL_SERVER_PORT = 6568;
+    private static final int MIN_PORT = 1;
+    private static final int MAX_PORT = 65535;
+    private static final int DEFAULT_DUEL_MAX_WORKERS = 4;
+    private static final int MIN_DUEL_WORKERS = 1;
+    private static final int MAX_DUEL_WORKERS = 10;
+    private static final String DEFAULT_DUEL_WORKER_JAR = "server-release.jar";
+    private static final String DEFAULT_DUEL_WORKER_MAP = "evict-map";
 
     /**
      * Capture attrition keeps the tier-based percentages.
@@ -91,6 +99,17 @@ final class EvictSettings {
     private double passagePercent = 25d;
     private int extinctionTerrainChangesPerTick =
         DEFAULT_EXTINCTION_TERRAIN_CHANGES_PER_TICK;
+
+    /**
+     * Dedicated 1v1 server that /play redirects to. A blank IP means the duel
+     * feature is not configured yet, so /play stays inert instead of sending
+     * players nowhere.
+     */
+    private String duelServerIp = "";
+    private int duelServerPort = DEFAULT_DUEL_SERVER_PORT;
+    private int duelMaxWorkers = DEFAULT_DUEL_MAX_WORKERS;
+    private String duelWorkerJarName = DEFAULT_DUEL_WORKER_JAR;
+    private String duelWorkerMap = DEFAULT_DUEL_WORKER_MAP;
     private WaterSettings waterSettings =
         new WaterSettings(
             DEFAULT_WATER_PATCH_ATTEMPTS_PER_HEX,
@@ -251,6 +270,15 @@ final class EvictSettings {
                 );
             }
 
+            setDuelServerWithoutSaving(
+                readString(properties, "duel.server.ip", duelServerIp),
+                readInt(properties, "duel.server.port", duelServerPort),
+                readInt(properties, "duel.maxWorkers", duelMaxWorkers),
+                readString(properties, "duel.worker.map", duelWorkerMap)
+            );
+            duelWorkerJarName =
+                readString(properties, "duel.worker.jar", duelWorkerJarName);
+
             // Backfill newly introduced properties after plugin upgrades.
             save();
 
@@ -303,6 +331,76 @@ final class EvictSettings {
     void setExtinctionTerrainChangesPerTick(int amount) {
         setExtinctionTerrainChangesPerTickWithoutSaving(amount);
         save();
+    }
+
+    void setDuelServer(
+        String ip,
+        int basePort,
+        int maxWorkers,
+        String map
+    ) {
+        setDuelServerWithoutSaving(ip, basePort, maxWorkers, map);
+        save();
+    }
+
+    String duelServerIp() {
+        return duelServerIp;
+    }
+
+    int duelServerPort() {
+        return duelServerPort;
+    }
+
+    int duelMaxWorkers() {
+        return duelMaxWorkers;
+    }
+
+    String duelWorkerJarName() {
+        return duelWorkerJarName;
+    }
+
+    String duelWorkerMap() {
+        return duelWorkerMap;
+    }
+
+    boolean duelServerConfigured() {
+        return duelServerIp != null && !duelServerIp.isBlank();
+    }
+
+    String compactDuelServerSettings() {
+        if (!duelServerConfigured()) {
+            return "not set";
+        }
+
+        int lastPort = duelServerPort + duelMaxWorkers - 1;
+
+        return duelServerIp
+            + " ports " + duelServerPort + "-" + lastPort
+            + " (" + duelMaxWorkers + " workers, map=" + duelWorkerMap + ")";
+    }
+
+    private void setDuelServerWithoutSaving(
+        String ip,
+        int basePort,
+        int maxWorkers,
+        String map
+    ) {
+        duelServerIp = ip == null ? "" : ip.trim();
+        duelServerPort = validateIntRange(
+            "Duel base port",
+            basePort,
+            MIN_PORT,
+            MAX_PORT
+        );
+        duelMaxWorkers = validateIntRange(
+            "Duel max workers",
+            maxWorkers,
+            MIN_DUEL_WORKERS,
+            MAX_DUEL_WORKERS
+        );
+        duelWorkerMap = map == null || map.isBlank()
+            ? DEFAULT_DUEL_WORKER_MAP
+            : map.trim();
     }
 
     void setWaterSettings(
@@ -648,6 +746,16 @@ final class EvictSettings {
         return Integer.parseInt(value.trim());
     }
 
+    private String readString(
+        Properties properties,
+        String key,
+        String fallback
+    ) {
+        String value = properties.getProperty(key);
+
+        return value == null ? fallback : value.trim();
+    }
+
     private double legacyWaterPatchAttemptsPerHex(Properties properties) {
         String legacyPercent = properties.getProperty(
             "water.patchAttemptsPercentPerHex"
@@ -739,6 +847,20 @@ final class EvictSettings {
             "extinction.terrainChangesPerTick",
             Integer.toString(extinctionTerrainChangesPerTick)
         );
+        properties.setProperty(
+            "duel.server.ip",
+            duelServerIp == null ? "" : duelServerIp
+        );
+        properties.setProperty(
+            "duel.server.port",
+            Integer.toString(duelServerPort)
+        );
+        properties.setProperty(
+            "duel.maxWorkers",
+            Integer.toString(duelMaxWorkers)
+        );
+        properties.setProperty("duel.worker.map", duelWorkerMap);
+        properties.setProperty("duel.worker.jar", duelWorkerJarName);
         properties.setProperty(
             "water.patchAttemptsPerHex",
             Double.toString(waterSettings.patchAttemptsPerHex())
