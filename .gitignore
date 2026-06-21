@@ -4,3 +4,6 @@ build/
 config/*.db
 config/*.db-shm
 config/*.db-wal
+/mindustry-src/
+.idea
+test

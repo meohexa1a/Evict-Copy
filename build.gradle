@@ -23,7 +23,7 @@ java {
 }
 
 ext {
-    mindustryVersion = "v157.4"
+    mindustryVersion = "v158"
 }
 
 dependencies {
@@ -43,4 +43,24 @@ jar {
     from(rootDir) {
         include "plugin.json"
     }
+}
+
+tasks.register("runServer", JavaExec) {
+    description = "Run test server"
+
+    dependsOn(tasks.named("jar"))
+
+    doFirst {
+        mkdir "test/config/mods"
+        copy {
+            from(tasks.named("jar").get().outputs.files)
+            into(file("test/config/mods"))
+        }
+        println("Copied plugin jar to test/config/mods/")
+    }
+
+    standardInput = System.in
+    workingDir = file("test")
+    classpath = files("test/server.jar")
+    mainClass.set("mindustry.server.ServerLauncher")
 }
